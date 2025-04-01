@@ -245,88 +245,87 @@ export default function GameMap() {
     [user, players]
   );
 
-  // Get initial position and watch for changes
+  // Get initial position and watch for changes with auto-reconnect
   useEffect(() => {
     if (!user || useSimulator) return;
 
-    const requestLocation = async () => {
-      setIsLocating(true);
-      setError(null);
+    let watchId = null;
+    let reconnectTimeout = null;
+    const RECONNECT_DELAY = 2000; // 2 seconds
 
-      if (!navigator.geolocation) {
-        setError('Geolocation is not supported by your browser');
-        setIsLocating(false);
-        return;
+    const startWatching = () => {
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
       }
 
-      try {
-        // First try to get a single position
-        const position = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            resolve,
-            reject,
-            {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 0
-            }
-          );
-        });
-
-        const newPos = [position.coords.latitude, position.coords.longitude];
-        setPosition(newPos);
-        updateLocation(newPos);
-        setIsLocating(false);
-
-        // Then start watching position
-        locationWatchId.current = navigator.geolocation.watchPosition(
-          (pos) => {
-            const now = Date.now();
-            if (!lastStatusUpdate.current || now - lastStatusUpdate.current >= 1000) {
-              const newPos = [pos.coords.latitude, pos.coords.longitude];
-              setPosition(newPos);
-              updateLocation(newPos);
-              lastStatusUpdate.current = now;
-            }
-          },
-          (err) => {
-            console.error('Error watching location:', err);
-            if (err.code === 1) { // PERMISSION_DENIED
-              setError('Please enable location services to use this app');
-            } else if (err.code === 2) { // POSITION_UNAVAILABLE
-              setError('Location information is unavailable');
-            } else if (err.code === 3) { // TIMEOUT
-              setError('The request to get user location timed out');
-            } else {
-              setError('An unknown error occurred');
-            }
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const newPos = [pos.coords.latitude, pos.coords.longitude];
+          setPosition(newPos);
+          updateLocation(newPos);
+          setError(null);
+          setIsLocating(false);
+        },
+        (err) => {
+          console.error('Location watch error:', err);
+          // Only set error if it's a permission issue
+          if (err.code === 1) { // PERMISSION_DENIED
+            setError('Please enable location services to use this app');
             setIsLocating(false);
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 5000
+          } else {
+            // For other errors, try to reconnect
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            reconnectTimeout = setTimeout(startWatching, RECONNECT_DELAY);
           }
-        );
-      } catch (err) {
-        console.error('Error getting location:', err);
-        if (err.code === 1) { // PERMISSION_DENIED
-          setError('Please enable location services to use this app');
-        } else {
-          setError('Error getting your location. Please try again.');
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 1000
         }
-        setIsLocating(false);
-      }
+      );
+
+      // Get initial position immediately
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const newPos = [pos.coords.latitude, pos.coords.longitude];
+          setPosition(newPos);
+          updateLocation(newPos);
+          setError(null);
+          setIsLocating(false);
+        },
+        (err) => {
+          console.error('Initial position error:', err);
+          if (err.code === 1) { // PERMISSION_DENIED
+            setError('Please enable location services to use this app');
+          }
+          setIsLocating(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
     };
 
-    requestLocation();
+    // Start watching immediately
+    startWatching();
+
+    // Set up an interval to check if we're still getting updates
+    const checkInterval = setInterval(() => {
+      if (!position) {
+        console.log('No position updates, restarting watch...');
+        startWatching();
+      }
+    }, 10000); // Check every 10 seconds
 
     return () => {
-      if (locationWatchId.current) {
-        navigator.geolocation.clearWatch(locationWatchId.current);
-      }
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      clearInterval(checkInterval);
     };
-  }, [user, useSimulator]);
+  }, [user, useSimulator, updateLocation]);
 
   // Check if player is outside any zone and update status - with rate limiting
   useEffect(() => {
