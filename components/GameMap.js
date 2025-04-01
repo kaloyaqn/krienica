@@ -867,6 +867,7 @@ export default function GameMap() {
             ref={mapRef}
             zoomControl={false}
             className="h-screen w-screen"
+            rotate={true}
           >
             <MapUpdater position={position} />
             <TileLayer
