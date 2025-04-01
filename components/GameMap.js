@@ -8,10 +8,11 @@ import 'leaflet-draw/dist/leaflet.draw.css';
 import 'leaflet-draw';
 import { useAuth } from '@/lib/firebase/auth-hooks';
 import LocationSimulator from './LocationSimulator';
-import { database } from '../lib/firebase';
+import { database, auth } from '../lib/firebase';
 import { ref, onValue, set, push } from 'firebase/database';
 import { debounce } from 'lodash';
 import dynamic from 'next/dynamic';
+import { signOut } from 'firebase/auth';
 
 // Dynamically import DrawingCanvas to avoid SSR issues
 const DrawingCanvas = dynamic(() => import('./DrawingCanvas'), {
@@ -91,122 +92,6 @@ function MapUpdater({ position }) {
   return null;
 }
 
-// Drawing control component
-function DrawingControl({ onZoneCreated, onCancel }) {
-  const map = useMap();
-  const drawControl = useRef(null);
-  const drawnItems = useRef(null);
-  const isDrawing = useRef(false);
-
-  useEffect(() => {
-    // Create a FeatureGroup to store editable layers
-    drawnItems.current = new L.FeatureGroup();
-    map.addLayer(drawnItems.current);
-
-    // Disable map interactions when drawing starts
-    const disableMapInteractions = () => {
-      map.dragging.disable();
-      map.touchZoom.disable();
-      map.doubleClickZoom.disable();
-      map.scrollWheelZoom.disable();
-      map.boxZoom.disable();
-      map.keyboard.disable();
-      if (map.tap) map.tap.disable();
-    };
-
-    // Enable map interactions when drawing stops
-    const enableMapInteractions = () => {
-      map.dragging.enable();
-      map.touchZoom.enable();
-      map.doubleClickZoom.enable();
-      map.scrollWheelZoom.enable();
-      map.boxZoom.enable();
-      map.keyboard.enable();
-      if (map.tap) map.tap.enable();
-    };
-
-    // Create draw control with mobile-friendly options
-    drawControl.current = new L.Control.Draw({
-      position: 'topright',
-      draw: {
-        circle: {
-          allowIntersection: false,
-          showLength: true,
-          metric: true,
-          feet: false,
-          shapeOptions: {
-            color: '#4CAF50',
-            fillColor: '#4CAF50',
-            fillOpacity: 0.2,
-            weight: 3
-          },
-          repeatMode: false // Disable repeat mode for better mobile experience
-        },
-        circlemarker: false,
-        marker: false,
-        polyline: false,
-        polygon: false,
-        rectangle: false
-      },
-      edit: {
-        featureGroup: drawnItems.current,
-        remove: true
-      }
-    });
-
-    // Add draw control to map
-    map.addControl(drawControl.current);
-
-    // Handle circle creation
-    map.on('draw:created', (e) => {
-      if (isDrawing.current) return;
-      isDrawing.current = true;
-      
-      const layer = e.layer;
-      const center = layer.getLatLng();
-      const radius = layer.getRadius();
-      
-      const name = prompt('Въведете име на зоната:');
-      if (name) {
-        onZoneCreated({
-          name,
-          center: [center.lat, center.lng],
-          radius: radius
-        });
-      }
-      isDrawing.current = false;
-      enableMapInteractions();
-    });
-
-    // Handle drawing start
-    map.on('draw:drawstart', () => {
-      disableMapInteractions();
-    });
-
-    // Handle drawing stop
-    map.on('draw:drawstop', () => {
-      enableMapInteractions();
-    });
-
-    // Handle drawing cancel
-    map.on('draw:deletestop', () => {
-      enableMapInteractions();
-    });
-
-    return () => {
-      if (drawControl.current) {
-        map.removeControl(drawControl.current);
-      }
-      if (drawnItems.current) {
-        map.removeLayer(drawnItems.current);
-      }
-      enableMapInteractions();
-    };
-  }, [map, onZoneCreated]);
-
-  return null;
-}
-
 // Add Safari detection
 const isSafari = () => {
   const ua = navigator.userAgent.toLowerCase();
@@ -215,7 +100,6 @@ const isSafari = () => {
 
 // Profile Component
 function ProfileOverlay({ user, position, useSimulator, setUseSimulator }) {
-  const { auth } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef(null);
   
@@ -261,7 +145,7 @@ function ProfileOverlay({ user, position, useSimulator, setUseSimulator }) {
             {useSimulator ? 'Използвай GPS' : 'Използвай симулатор'}
           </button>
           <button 
-            onClick={() => auth.signOut()}
+            onClick={() => signOut(auth)}
             className="w-full text-left p-2 hover:bg-white/80 rounded text-sm text-red-600"
           >
             Изход
@@ -273,7 +157,7 @@ function ProfileOverlay({ user, position, useSimulator, setUseSimulator }) {
 }
 
 // Game Info Modal
-function GameInfoModal({ isOpen, onClose, zones, players, user }) {
+function GameInfoModal({ isOpen, onClose, zones, players, user, onDeleteZone }) {
   const modalRef = useRef(null);
 
   // Handle click outside
@@ -332,7 +216,7 @@ function GameInfoModal({ isOpen, onClose, zones, players, user }) {
                         </p>
                       </div>
                       <button
-                        onClick={() => handleDeleteZone(zone.id)}
+                        onClick={() => onDeleteZone(zone.id)}
                         className="text-red-500 hover:text-red-700 p-1"
                         title="Изтрий зона"
                       >
@@ -391,6 +275,90 @@ function GameInfoModal({ isOpen, onClose, zones, players, user }) {
   );
 }
 
+// Zone Creation Modal
+function ZoneCreationModal({ isOpen, onClose, onSubmit }) {
+  const [zoneName, setZoneName] = useState('');
+  const modalRef = useRef(null);
+
+  // Handle click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (modalRef.current && !modalRef.current.contains(event.target)) {
+        onClose();
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (zoneName.trim()) {
+      onSubmit(zoneName.trim());
+      setZoneName('');
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+      <div ref={modalRef} className="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-xl font-semibold text-gray-800">Създаване на нова зона</h2>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            ✕
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <div>
+            <label htmlFor="zoneName" className="block text-sm font-medium text-gray-700 mb-1">
+              Име на зоната
+            </label>
+            <input
+              type="text"
+              id="zoneName"
+              value={zoneName}
+              onChange={(e) => setZoneName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              placeholder="Въведете име на зоната"
+              autoFocus
+              required
+            />
+          </div>
+          
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+            >
+              Отказ
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 text-white bg-green-500 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              Създай зона
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // Add key to force remount when position changes
 export default function GameMap() {
   const { user } = useAuth();
@@ -409,6 +377,8 @@ export default function GameMap() {
   const watchIdRef = useRef(null);
   const timeoutRef = useRef(null);
   const [isGameInfoOpen, setIsGameInfoOpen] = useState(false);
+  const [isZoneCreationModalOpen, setIsZoneCreationModalOpen] = useState(false);
+  const [pendingZoneData, setPendingZoneData] = useState(null);
 
   // Add notification function with cooldown
   const addNotification = (playerId, message) => {
@@ -752,20 +722,26 @@ export default function GameMap() {
 
   const handleZoneCreated = async (zoneData) => {
     if (!user) return;
+    setPendingZoneData(zoneData);
+    setIsZoneCreationModalOpen(true);
+  };
+
+  const handleZoneSubmit = async (zoneName) => {
+    if (!user || !pendingZoneData) return;
 
     try {
-      const name = prompt('Въведете име на зоната:');
-      if (name) {
-        const zonesRef = ref(database, 'zones');
-        const newZoneRef = push(zonesRef);
-        
-        await set(newZoneRef, {
-          ...zoneData,
-          name,
-          createdBy: user.uid,
-          createdAt: Date.now()
-        });
-      }
+      const zonesRef = ref(database, 'zones');
+      const newZoneRef = push(zonesRef);
+      
+      await set(newZoneRef, {
+        ...pendingZoneData,
+        name: zoneName,
+        createdBy: user.uid,
+        createdAt: Date.now()
+      });
+      
+      setPendingZoneData(null);
+      setIsDrawingEnabled(false);
     } catch (error) {
       console.error('Error creating zone:', error);
       alert('Грешка при създаване на зоната. Моля, опитайте отново.');
@@ -884,7 +860,7 @@ export default function GameMap() {
       <div className="absolute inset-0 z-0">
         {position ? (
           <MapContainer
-            key={`map-${position?.join(',')}`}
+            key="map-container"
             center={position}
             zoom={15}
             style={{ height: '100vh', width: '100vw' }}
@@ -935,9 +911,9 @@ export default function GameMap() {
               icon={createMarkerIcon(user.photoURL, true)}
             >
               <Popup>
-                <span className="text-black">You ({user.displayName})</span>
+                <span className="text-black">Ти ({user.displayName})</span>
                 <br />
-                <span className="text-black">Current Location</span>
+                <span className="text-black">Локация вмомента</span>
               </Popup>
             </Marker>
 
@@ -956,7 +932,7 @@ export default function GameMap() {
                     <span className="text-black">Last updated: {new Date(playerData.timestamp).toLocaleTimeString()}</span>
                     {playerData.isOutsideZone && (
                       <div className="mt-2 text-red-500 font-bold">
-                        ⚠️ Outside Game Zone
+                        ⚠️ Outside Game Zo
                       </div>
                     )}
                   </Popup>
@@ -995,7 +971,7 @@ export default function GameMap() {
       {/* Game Info Button */}
       <button
         onClick={() => setIsGameInfoOpen(true)}
-        className="fixed top-4 right-4 z-[1000] bg-white/90 backdrop-blur-sm rounded-full shadow-lg p-3 hover:bg-white/100 transition-all"
+        className="fixed top-4 right-4 z-[1000] bg-white/90 backdrop-blur-sm rounded-full shadow-lg p-3 hover:bg-white/100 transition-all"text-black
         title="Информация за играта"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1010,6 +986,7 @@ export default function GameMap() {
         zones={zones}
         players={players}
         user={user}
+        onDeleteZone={handleDeleteZone}
       />
 
       {/* Draw Zone Button - fixed at bottom */}
@@ -1053,6 +1030,16 @@ export default function GameMap() {
           </div>
         ))}
       </div>
+
+      {/* Zone Creation Modal */}
+      <ZoneCreationModal
+        isOpen={isZoneCreationModalOpen}
+        onClose={() => {
+          setIsZoneCreationModalOpen(false);
+          setPendingZoneData(null);
+        }}
+        onSubmit={handleZoneSubmit}
+      />
     </div>
   );
 } 

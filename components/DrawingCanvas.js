@@ -81,15 +81,11 @@ export default function DrawingCanvas({ map, onZoneCreated, onCancel }) {
       return sum + center.distanceTo(point);
     }, 0) / points.length;
 
-    // Ask for zone name and create zone
-    const name = prompt('Въведете име на зоната:');
-    if (name) {
-      onZoneCreated({
-        name,
-        center: [center.lat, center.lng],
-        radius: radius
-      });
-    }
+    // Create zone without asking for name
+    onZoneCreated({
+      center: [center.lat, center.lng],
+      radius: radius
+    });
   };
 
   const handleCancel = () => {
@@ -131,7 +127,7 @@ export default function DrawingCanvas({ map, onZoneCreated, onCancel }) {
           Отказ
         </button>
       </div>
-      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+      <div className="absolute bottom-21 left-1/2 transform -translate-x-1/2">
         <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow p-4 text-center">
           <p className="text-gray-800 font-medium">
             Начертайте зона с пръст или мишка
