@@ -51,10 +51,9 @@ export default function Home() {
       <div className="max-w-md w-full space-y-8 bg-white p-6 rounded-xl shadow-lg">
         <div>
           <h1 className="text-3xl font-bold text-center text-gray-900">
-            Car Hide & Seek
+            Криенциа
           </h1>
           <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
-            Sign in to play
           </h2>
         </div>
 

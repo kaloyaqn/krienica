@@ -78,7 +78,7 @@ function MapUpdater({ position }) {
   const map = useMap();
   useEffect(() => {
     if (position && !map.initialPositionSet) {
-      map.setView(position);
+      map.setView(position, 16);
       map.initialPositionSet = true;
     }
   }, [position, map]);
@@ -187,15 +187,17 @@ export default function GameMap() {
   const { user } = useAuth();
   const [position, setPosition] = useState(null);
   const [error, setError] = useState(null);
+  const [isLocating, setIsLocating] = useState(true);
+  const [useSimulator, setUseSimulator] = useState(false);
   const [players, setPlayers] = useState({});
   const [zones, setZones] = useState([]);
   const [selectedZone, setSelectedZone] = useState(null);
-  const [useSimulator, setUseSimulator] = useState(false);
   const [isDrawingEnabled, setIsDrawingEnabled] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const notifiedPlayers = useRef(new Map());
   const lastStatusUpdate = useRef(null);
   const mapRef = useRef(null);
+  const locationWatchId = useRef(null);
 
   // Add notification function with cooldown
   const addNotification = (playerId, message) => {
@@ -247,53 +249,84 @@ export default function GameMap() {
   useEffect(() => {
     if (!user || useSimulator) return;
 
-    let lastUpdate = 0;
-    const minUpdateInterval = 1000; // Minimum 1 second between updates
+    const requestLocation = async () => {
+      setIsLocating(true);
+      setError(null);
 
-    // First get a single position
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const newPos = [pos.coords.latitude, pos.coords.longitude];
+      if (!navigator.geolocation) {
+        setError('Geolocation is not supported by your browser');
+        setIsLocating(false);
+        return;
+      }
+
+      try {
+        // First try to get a single position
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            resolve,
+            reject,
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 0
+            }
+          );
+        });
+
+        const newPos = [position.coords.latitude, position.coords.longitude];
         setPosition(newPos);
         updateLocation(newPos);
-      },
-      (err) => {
-        console.error('Error getting initial location:', err);
-        setError(err.message);
-        setUseSimulator(true);
-      },
-      { 
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    );
+        setIsLocating(false);
 
-    // Then watch for position changes with rate limiting
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const now = Date.now();
-        if (now - lastUpdate >= minUpdateInterval) {
-          const newPos = [pos.coords.latitude, pos.coords.longitude];
-          setPosition(newPos);
-          updateLocation(newPos);
-          lastUpdate = now;
+        // Then start watching position
+        locationWatchId.current = navigator.geolocation.watchPosition(
+          (pos) => {
+            const now = Date.now();
+            if (!lastStatusUpdate.current || now - lastStatusUpdate.current >= 1000) {
+              const newPos = [pos.coords.latitude, pos.coords.longitude];
+              setPosition(newPos);
+              updateLocation(newPos);
+              lastStatusUpdate.current = now;
+            }
+          },
+          (err) => {
+            console.error('Error watching location:', err);
+            if (err.code === 1) { // PERMISSION_DENIED
+              setError('Please enable location services to use this app');
+            } else if (err.code === 2) { // POSITION_UNAVAILABLE
+              setError('Location information is unavailable');
+            } else if (err.code === 3) { // TIMEOUT
+              setError('The request to get user location timed out');
+            } else {
+              setError('An unknown error occurred');
+            }
+            setIsLocating(false);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 5000
+          }
+        );
+      } catch (err) {
+        console.error('Error getting location:', err);
+        if (err.code === 1) { // PERMISSION_DENIED
+          setError('Please enable location services to use this app');
+        } else {
+          setError('Error getting your location. Please try again.');
         }
-      },
-      (err) => {
-        console.error('Error watching location:', err);
-        setError(err.message);
-        setUseSimulator(true);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 5000
+        setIsLocating(false);
       }
-    );
+    };
 
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [user, useSimulator, updateLocation]);
+    requestLocation();
+
+    return () => {
+      if (locationWatchId.current) {
+        navigator.geolocation.clearWatch(locationWatchId.current);
+      }
+    };
+  }, [user, useSimulator]);
 
   // Check if player is outside any zone and update status - with rate limiting
   useEffect(() => {
@@ -428,19 +461,40 @@ export default function GameMap() {
   if (error && !useSimulator) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-4 text-center">
-        <p className="text-red-500 mb-4">Error getting location: {error}</p>
+        <p className="text-red-500 mb-4">{error}</p>
         <p className="text-sm mb-4">
           Please make sure:
-          <br />- Location services are enabled
-          <br />- You&apos;ve given permission to access location
+          <br />- Location services are enabled in your device settings
+          <br />- You&apos;ve given permission to access location in your browser
           <br />- You&apos;re using a secure (HTTPS) connection
+          <br />- You&apos;re not in private/incognito mode
         </p>
         <button
+          onClick={() => {
+            setError(null);
+            setIsLocating(true);
+            window.location.reload();
+          }}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mb-4"
+        >
+          Try Again
+        </button>
+        <button
           onClick={() => setUseSimulator(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
         >
           Use Location Simulator
         </button>
+      </div>
+    );
+  }
+
+  if (isLocating && !useSimulator) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+        <p className="text-black">Getting your location...</p>
+        <p className="text-sm text-gray-500 mt-2">Please allow location access when prompted</p>
       </div>
     );
   }
