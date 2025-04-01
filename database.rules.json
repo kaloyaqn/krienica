@@ -5,7 +5,7 @@
       ".write": "auth != null",
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (auth.uid === $uid || newData.child('role').exists())",
         "position": {
           ".validate": "newData.isString() || newData.hasChildren(['0', '1'])"
         },
@@ -17,6 +17,12 @@
         },
         "timestamp": {
           ".validate": "newData.isNumber()"
+        },
+        "role": {
+          ".validate": "newData.isString() && (newData.val() === 'seeker' || newData.val() === 'hider' || newData.val() === 'spectator')"
+        },
+        "roleUpdatedAt": {
+          ".validate": "newData.isNumber()"
         }
       }
     },
@@ -26,9 +32,15 @@
       "$zoneId": {
         ".read": "auth != null",
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['name', 'center', 'radius', 'createdBy', 'createdAt'])",
+        ".validate": "newData.hasChildren(['name', 'type', 'createdBy', 'createdAt']) && (newData.child('type').val() === 'polygon' ? newData.hasChildren(['coordinates']) : newData.hasChildren(['center', 'radius']) && newData.child('center').hasChildren(['0', '1']) && newData.child('radius').isNumber() && newData.child('radius').val() > 0)",
         "name": {
           ".validate": "newData.isString()"
+        },
+        "type": {
+          ".validate": "newData.isString() && (newData.val() === 'polygon' || newData.val() === 'circle')"
+        },
+        "coordinates": {
+          ".validate": "newData.hasChildren(['0', '1', '2'])"
         },
         "center": {
           ".validate": "newData.hasChildren(['0', '1'])"

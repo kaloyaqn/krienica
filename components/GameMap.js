@@ -9,10 +9,11 @@ import 'leaflet-draw';
 import { useAuth } from '../lib/firebase/auth-hooks';
 import LocationSimulator from './LocationSimulator';
 import { database, auth } from '../lib/firebase';
-import { ref, onValue, set, push } from 'firebase/database';
+import { ref, onValue, set, push, get } from 'firebase/database';
 import { debounce } from 'lodash';
 import dynamic from 'next/dynamic';
 import { signOut } from 'firebase/auth';
+import { ROLES, getPlayerRole, setPlayerRole, switchPlayerRole } from '../lib/firebase/roles';
 
 // Dynamically import DrawingCanvas to avoid SSR issues
 const DrawingCanvas = dynamic(() => import('./DrawingCanvas'), {
@@ -28,10 +29,10 @@ L.Icon.Default.mergeOptions({
 });
 
 // Create custom marker icons
-const createMarkerIcon = (photoURL, isCurrentUser = false) => {
+const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
   const size = isCurrentUser ? 40 : 30;
   const borderSize = isCurrentUser ? 3 : 2;
-  const borderColor = isCurrentUser ? '#4CAF50' : '#FF0000';
+  const borderColor = role === 'hider' ? '#FF0000' : '#4CAF50';
   
   return L.divIcon({
     html: `
@@ -379,51 +380,49 @@ export default function GameMap({ onZoneCreated }) {
   const [isGameInfoOpen, setIsGameInfoOpen] = useState(false);
   const [isZoneCreationModalOpen, setIsZoneCreationModalOpen] = useState(false);
   const [pendingZoneData, setPendingZoneData] = useState(null);
+  const [playerRole, setPlayerRole] = useState(null);
 
-  // Add notification function with cooldown
-  const addNotification = (playerId, message) => {
-    const now = Date.now();
-    const lastNotified = notifiedPlayers.current.get(playerId) || 0;
-    const cooldownPeriod = 30000; // 30 seconds cooldown
+  // Listen for players data including roles
+  useEffect(() => {
+    if (!user) return;
 
-    // Check if we're still in cooldown for this player
-    if (now - lastNotified < cooldownPeriod) {
-      return;
-    }
+    const playersRef = ref(database, 'players');
+    const unsubscribe = onValue(playersRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const playersData = snapshot.val();
+        setPlayers(playersData);
+        
+        // Update current player's role if it exists
+        if (playersData[user.uid]?.role) {
+          setPlayerRole(playersData[user.uid].role);
+        }
+      }
+    });
 
-    // Update last notified time for this player
-    notifiedPlayers.current.set(playerId, now);
-
-    const id = Date.now();
-    setNotifications(prev => [...prev, { id, message }]);
-    
-    // Remove notification after 5 seconds
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
-  };
+    return () => unsubscribe();
+  }, [user]);
 
   // Debounced update location function
   const updateLocation = useCallback(
     debounce(async (locationData) => {
       if (!user) return;
       try {
-        const currentPlayer = players[user.uid] || {};
-        const playerData = {
-          ...currentPlayer,
+        const playerRef = ref(database, `players/${user.uid}`);
+        const snapshot = await get(playerRef);
+        const currentData = snapshot.exists() ? snapshot.val() : {};
+        
+        await set(playerRef, {
+          ...currentData,
           position: locationData,
           displayName: user.displayName || 'Anonymous',
           photoURL: user.photoURL || null,
           timestamp: Date.now()
-        };
-        
-        const userLocationRef = ref(database, `players/${user.uid}`);
-        await set(userLocationRef, playerData);
+        });
       } catch (error) {
         console.error('Error updating location:', error);
       }
-    }, 1000), // Update at most once per second
-    [user, players]
+    }, 1000),
+    [user]
   );
 
   // Function to request location permission explicitly
@@ -804,6 +803,91 @@ export default function GameMap({ onZoneCreated }) {
     };
   }, []);
 
+  // Initialize player role
+  useEffect(() => {
+    if (!user) return;
+
+    const initializeRole = async () => {
+      try {
+        const role = await getPlayerRole(user.uid);
+        if (!role) {
+          // If no role is assigned, default to HIDER
+          await setPlayerRole(user.uid, ROLES.HIDER);
+          setPlayerRole(ROLES.HIDER);
+        } else {
+          setPlayerRole(role);
+        }
+      } catch (error) {
+        console.error('Error initializing player role:', error);
+      }
+    };
+
+    initializeRole();
+  }, [user]);
+
+  // Handle role switch
+  const handleRoleSwitch = async () => {
+    if (!user) return;
+
+    try {
+      const newRole = await switchPlayerRole(user.uid);
+      setPlayerRole(newRole);
+    } catch (error) {
+      console.error('Error switching role:', error);
+    }
+  };
+
+  // Add role display component
+  const RoleDisplay = () => {
+    const currentRole = players[user?.uid]?.role || ROLES.HIDER;
+    
+    return (
+      <div className="fixed bottom-8 left-8 z-[1000] bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-2">
+        <div className="flex items-center">
+          <span className={`px-3 py-1 rounded-full ${
+            currentRole === ROLES.HIDER ? 'bg-green-500' : 'bg-red-500'
+          } text-white font-medium`}>
+            {currentRole === ROLES.HIDER ? 'Криещ се' : 'Търсещ'}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Filter players based on role visibility rules
+  const getVisiblePlayers = useCallback(() => {
+    if (!user || !players) return {};
+
+    const currentPlayer = players[user.uid];
+    if (!currentPlayer?.role) return {};
+
+    if (currentPlayer.role === ROLES.HIDER) {
+      return players;
+    }
+
+    if (currentPlayer.role === ROLES.SEEKER) {
+      return Object.entries(players).reduce((acc, [playerId, playerData]) => {
+        if (playerData.role === ROLES.SEEKER || playerData.role === ROLES.SPECTATOR) {
+          acc[playerId] = playerData;
+        }
+        return acc;
+      }, {});
+    }
+
+    return players;
+  }, [user, players]);
+
+  // Update map initialization
+  useEffect(() => {
+    if (!position || !mapRef.current) return;
+
+    const map = mapRef.current;
+    if (!map.initialPositionSet) {
+      map.setView(position, 16);
+      map.initialPositionSet = true;
+    }
+  }, [position]);
+
   if (!user) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-50">
@@ -869,6 +953,7 @@ export default function GameMap({ onZoneCreated }) {
 
   return (
     <div className="fixed inset-0 overflow-hidden">
+      <RoleDisplay />
       {/* Map as background - always full viewport */}
       <div className="absolute inset-0 z-0">
         {position ? (
@@ -939,7 +1024,7 @@ export default function GameMap({ onZoneCreated }) {
             {/* Current player marker */}
             <Marker
               position={position}
-              icon={createMarkerIcon(user.photoURL, true)}
+              icon={createMarkerIcon(user.photoURL, true, players[user.uid]?.role)}
             >
               <Popup>
                 <span className="text-black">Ти ({user.displayName})</span>
@@ -948,24 +1033,34 @@ export default function GameMap({ onZoneCreated }) {
               </Popup>
             </Marker>
 
-            {/* Other players markers */}
-            {Object.entries(players).map(([playerId, playerData]) => {
+            {/* Render only visible players */}
+            {Object.entries(getVisiblePlayers()).map(([playerId, playerData]) => {
               if (playerId === user.uid) return null;
               return (
                 <Marker
                   key={playerId}
                   position={playerData.position}
-                  icon={createMarkerIcon(playerData.photoURL)}
+                  icon={createMarkerIcon(playerData.photoURL, false, playerData.role)}
                 >
                   <Popup>
-                    <span className="text-black">{playerData.displayName}</span>
-                    <br />
-                    <span className="text-black">Last updated: {new Date(playerData.timestamp).toLocaleTimeString()}</span>
-                    {playerData.isOutsideZone && (
-                      <div className="mt-2 text-red-500 font-bold">
-                        ⚠️ Outside Game Zo
-                      </div>
-                    )}
+                    <div className="flex flex-col items-center">
+                      {playerData.photoURL && (
+                        <img
+                          src={playerData.photoURL}
+                          alt={playerData.displayName}
+                          className="w-8 h-8 rounded-full mb-2"
+                        />
+                      )}
+                      <span className="font-semibold">{playerData.displayName}</span>
+                      <span className={`text-sm ${
+                        playerData.role === 'hider' ? 'text-green-500' : 'text-red-500'
+                      }`}>
+                        {playerData.role === 'hider' ? 'Криещ се' : 'Търсещ'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        Last update: {new Date(playerData.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
                   </Popup>
                 </Marker>
               );
