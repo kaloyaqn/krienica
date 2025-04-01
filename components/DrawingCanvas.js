@@ -73,6 +73,13 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
     const handleTouchStart = (e) => {
       if (!isDrawing) return;
 
+      // Check if we're touching the controls area
+      const touch = e.originalEvent.touches[0];
+      const controlsElement = document.querySelector('.absolute.top-4.right-4');
+      if (controlsElement && controlsElement.contains(touch.target)) {
+        return;
+      }
+
       // Get the original DOM event
       const originalEvent = e.originalEvent;
       if (originalEvent) {
@@ -175,6 +182,12 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
         L.DomEvent.stopPropagation(e);
         L.DomEvent.disableClickPropagation(e.currentTarget);
       }}
+      onTouchStart={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        L.DomEvent.stopPropagation(e);
+        L.DomEvent.disableClickPropagation(e.currentTarget);
+      }}
     >
       <div className="bg-white p-4 rounded-lg shadow-lg mb-2">
         <p className="text-gray-700">Click or tap to add points. Click Finish when done.</p>
@@ -182,25 +195,23 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
       <div className="flex gap-2">
         <button
           onClick={handleFinishClick}
-          onMouseDown={(e) => {
+          onTouchEnd={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.disableClickPropagation(e.currentTarget);
+            handleFinishClick(e);
           }}
-          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow-lg"
+          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow-lg touch-manipulation"
         >
           Finish
         </button>
         <button
           onClick={handleCancel}
-          onMouseDown={(e) => {
+          onTouchEnd={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.disableClickPropagation(e.currentTarget);
+            handleCancel(e);
           }}
-          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-lg"
+          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-lg touch-manipulation"
         >
           Cancel
         </button>
