@@ -9,7 +9,6 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
   const [mousePosition, setMousePosition] = useState(null);
   const tempPolygonRef = useRef(null);
   const tempLineRef = useRef(null);
-  const lastTouchEndTime = useRef(0);
 
   // Update polygon when points change
   useEffect(() => {
@@ -35,7 +34,11 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
     map.scrollWheelZoom.disable();
     map.doubleClickZoom.disable();
 
-    // Handle map clicks and touches
+    // Set cursor style for drawing mode
+    const mapContainer = map.getContainer();
+    mapContainer.style.cursor = 'crosshair';
+
+    // Handle map clicks
     const handleMapClick = (e) => {
       if (!isDrawing) return;
       
@@ -66,49 +69,25 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
       }).addTo(map);
     };
 
-    // Handle double click and double tap
-    const handleFinish = () => {
-      if (points.length < 3) return;
-      
-      // Convert points to the format expected by the parent and close the polygon
-      const coordinates = [...points.map(point => [point.lat, point.lng])];
-      // Add the first point again to close the polygon
-      coordinates.push(coordinates[0]);
-      
-      // Call the callback with the coordinates
-      onZoneCreated(coordinates);
-      
-      // Clean up
-      if (tempPolygonRef.current) {
-        map.removeLayer(tempPolygonRef.current);
-      }
-      if (tempLineRef.current) {
-        map.removeLayer(tempLineRef.current);
-      }
-      setPoints([]);
-      setMousePosition(null);
-      setIsDrawing(false);
-    };
+    // Handle touch events
+    const handleTouchStart = (e) => {
+      if (!isDrawing) return;
 
-    // Handle touch end for double tap detection
-    const handleTouchEnd = (e) => {
-      const currentTime = new Date().getTime();
-      const tapLength = currentTime - lastTouchEndTime.current;
-      
-      if (tapLength < 500 && tapLength > 0) {
-        handleFinish();
+      // Get the original DOM event
+      const originalEvent = e.originalEvent;
+      if (originalEvent) {
+        originalEvent.preventDefault();
       }
-      
-      lastTouchEndTime.current = currentTime;
+
+      // Just add the point
+      handleMapClick(e);
     };
 
     // Add event listeners
     map.on('click', handleMapClick);
     map.on('mousemove', handleMove);
-    map.on('dblclick', handleFinish);
-    map.on('touchstart', handleMapClick);
+    map.on('touchstart', handleTouchStart);
     map.on('touchmove', handleMove);
-    map.on('touchend', handleTouchEnd);
 
     // Start drawing
     setIsDrawing(true);
@@ -117,10 +96,8 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
     return () => {
       map.off('click', handleMapClick);
       map.off('mousemove', handleMove);
-      map.off('dblclick', handleFinish);
-      map.off('touchstart', handleMapClick);
+      map.off('touchstart', handleTouchStart);
       map.off('touchmove', handleMove);
-      map.off('touchend', handleTouchEnd);
       
       if (tempPolygonRef.current) {
         map.removeLayer(tempPolygonRef.current);
@@ -134,11 +111,19 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
       map.touchZoom.enable();
       map.scrollWheelZoom.enable();
       map.doubleClickZoom.enable();
+
+      // Reset cursor style
+      mapContainer.style.cursor = '';
     };
   }, [map, isDrawing, points, onZoneCreated]);
 
   // Handle cancel button click
-  const handleCancel = () => {
+  const handleCancel = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    L.DomEvent.stopPropagation(e);
+    L.DomEvent.disableClickPropagation(e.currentTarget);
+    
     if (tempPolygonRef.current) {
       map.removeLayer(tempPolygonRef.current);
     }
@@ -151,47 +136,70 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
     onCancel();
   };
 
+  // Handle finish button click
+  const handleFinishClick = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    L.DomEvent.stopPropagation(e);
+    L.DomEvent.disableClickPropagation(e.currentTarget);
+    
+    if (points.length >= 3) {
+      const coordinates = [...points.map(point => [point.lat, point.lng])];
+      coordinates.push(coordinates[0]); // Close the polygon
+      onZoneCreated(coordinates);
+      
+      if (tempPolygonRef.current) {
+        map.removeLayer(tempPolygonRef.current);
+      }
+      if (tempLineRef.current) {
+        map.removeLayer(tempLineRef.current);
+      }
+      setPoints([]);
+      setMousePosition(null);
+      setIsDrawing(false);
+    }
+  };
+
   return (
     <div 
       className="absolute top-4 right-4 z-[1000]"
-      onMouseDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        L.DomEvent.stopPropagation(e);
+        L.DomEvent.disableClickPropagation(e.currentTarget);
+      }}
       onClick={(e) => {
         e.stopPropagation();
-        // Also prevent the event from being handled by the map
+        e.preventDefault();
         L.DomEvent.stopPropagation(e);
         L.DomEvent.disableClickPropagation(e.currentTarget);
       }}
     >
       <div className="bg-white p-4 rounded-lg shadow-lg mb-2">
-        <p className="text-gray-700">Click or tap to add points. Double-click/tap or use the Finish button to complete.</p>
+        <p className="text-gray-700">Click or tap to add points. Click Finish when done.</p>
       </div>
       <div className="flex gap-2">
-        {points.length >= 3 && (
-          <button
-            onClick={() => {
-              // Convert points to the format expected by the parent and close the polygon
-              const coordinates = [...points.map(point => [point.lat, point.lng])];
-              // Add the first point again to close the polygon
-              coordinates.push(coordinates[0]);
-              
-              onZoneCreated(coordinates);
-              if (tempPolygonRef.current) {
-                map.removeLayer(tempPolygonRef.current);
-              }
-              if (tempLineRef.current) {
-                map.removeLayer(tempLineRef.current);
-              }
-              setPoints([]);
-              setMousePosition(null);
-              setIsDrawing(false);
-            }}
-            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow-lg"
-          >
-            Finish
-          </button>
-        )}
+        <button
+          onClick={handleFinishClick}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.disableClickPropagation(e.currentTarget);
+          }}
+          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow-lg"
+        >
+          Finish
+        </button>
         <button
           onClick={handleCancel}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.disableClickPropagation(e.currentTarget);
+          }}
           className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-lg"
         >
           Cancel
@@ -201,4 +209,4 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
   );
 };
 
-export default DrawingCanvas; 
+export default DrawingCanvas;
