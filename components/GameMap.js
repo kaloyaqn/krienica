@@ -32,7 +32,7 @@ L.Icon.Default.mergeOptions({
 const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
   const size = isCurrentUser ? 40 : 30;
   const borderSize = isCurrentUser ? 3 : 2;
-  const borderColor = role === 'hider' ? '#FF0000' : '#4CAF50';
+  const borderColor = role === ROLES.SEEKER ? '#FF0000' : '#4CAF50';  // Red for seekers, green for hiders
   
   return L.divIcon({
     html: `
@@ -46,6 +46,7 @@ const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
         justify-content: center;
         border: ${borderSize}px solid white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        ${role === ROLES.SEEKER ? 'animation: pulse 2s infinite;' : ''}
       ">
         ${photoURL ? `
           <img 
@@ -55,6 +56,7 @@ const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
               height: ${size - borderSize * 2}px;
               border-radius: 50%;
               object-fit: cover;
+              ${role === ROLES.SEEKER ? 'border: 2px solid #FF0000;' : ''}
             "
             onerror="this.onerror=null; this.src='https://www.gravatar.com/avatar/?d=mp';"
           />
@@ -69,11 +71,25 @@ const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
             justify-content: center;
             color: white;
             font-size: ${size / 2}px;
+            ${role === ROLES.SEEKER ? 'border: 2px solid #FF0000;' : ''}
           ">
             👤
           </div>
         `}
       </div>
+      <style>
+        @keyframes pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+          }
+          70% {
+            box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+          }
+        }
+      </style>
     `,
     className: 'custom-marker',
     iconSize: [size, size],
@@ -861,10 +877,17 @@ export default function GameMap({ onZoneCreated }) {
     const currentPlayer = players[user.uid];
     if (!currentPlayer?.role) return {};
 
+    // If player is a hider, they can only see other hiders
     if (currentPlayer.role === ROLES.HIDER) {
-      return players;
+      return Object.entries(players).reduce((acc, [playerId, playerData]) => {
+        if (playerData.role === ROLES.HIDER) {
+          acc[playerId] = playerData;
+        }
+        return acc;
+      }, {});
     }
 
+    // If player is a seeker, they can only see other seekers and spectators
     if (currentPlayer.role === ROLES.SEEKER) {
       return Object.entries(players).reduce((acc, [playerId, playerData]) => {
         if (playerData.role === ROLES.SEEKER || playerData.role === ROLES.SPECTATOR) {
@@ -874,6 +897,7 @@ export default function GameMap({ onZoneCreated }) {
       }, {});
     }
 
+    // Spectators can see everyone
     return players;
   }, [user, players]);
 
@@ -1027,9 +1051,24 @@ export default function GameMap({ onZoneCreated }) {
               icon={createMarkerIcon(user.photoURL, true, players[user.uid]?.role)}
             >
               <Popup>
-                <span className="text-black">Ти ({user.displayName})</span>
-                <br />
-                <span className="text-black">Локация вмомента</span>
+                <div className="flex flex-col items-center">
+                  {user.photoURL && (
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName}
+                      className="w-10 h-10 rounded-full mb-2 border-2 border-gray-200"
+                    />
+                  )}
+                  <span className="font-bold text-lg">{user.displayName}</span>
+                  <span className={`px-3 py-1 rounded-full text-white text-sm font-medium mt-1 ${
+                    players[user.uid]?.role === ROLES.SEEKER ? 'bg-red-500' : 'bg-green-500'
+                  }`}>
+                    {players[user.uid]?.role === ROLES.SEEKER ? 'Търсещ' : 'Криещ се'}
+                  </span>
+                  <span className="text-xs text-gray-500 mt-1">
+                    Това си ти
+                  </span>
+                </div>
               </Popup>
             </Marker>
 
@@ -1048,17 +1087,17 @@ export default function GameMap({ onZoneCreated }) {
                         <img
                           src={playerData.photoURL}
                           alt={playerData.displayName}
-                          className="w-8 h-8 rounded-full mb-2"
+                          className="w-10 h-10 rounded-full mb-2 border-2 border-gray-200"
                         />
                       )}
-                      <span className="font-semibold">{playerData.displayName}</span>
-                      <span className={`text-sm ${
-                        playerData.role === 'hider' ? 'text-green-500' : 'text-red-500'
+                      <span className="font-bold text-lg">{playerData.displayName}</span>
+                      <span className={`px-3 py-1 rounded-full text-white text-sm font-medium mt-1 ${
+                        playerData.role === ROLES.SEEKER ? 'bg-red-500' : 'bg-green-500'
                       }`}>
-                        {playerData.role === 'hider' ? 'Криещ се' : 'Търсещ'}
+                        {playerData.role === ROLES.SEEKER ? 'Търсещ' : 'Криещ се'}
                       </span>
-                      <span className="text-xs text-gray-500">
-                        Last update: {new Date(playerData.timestamp).toLocaleTimeString()}
+                      <span className="text-xs text-gray-500 mt-1">
+                        Последно обновяване: {new Date(playerData.timestamp).toLocaleTimeString()}
                       </span>
                     </div>
                   </Popup>
