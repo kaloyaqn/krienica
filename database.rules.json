@@ -1,0 +1,48 @@
+{
+  "rules": {
+    "players": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        "position": {
+          ".validate": "newData.isString() || newData.hasChildren(['0', '1'])"
+        },
+        "displayName": {
+          ".validate": "newData.isString()"
+        },
+        "photoURL": {
+          ".validate": "newData.isString() || newData.val() === null"
+        },
+        "timestamp": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+    "zones": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$zoneId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['name', 'center', 'radius', 'createdBy', 'createdAt'])",
+        "name": {
+          ".validate": "newData.isString()"
+        },
+        "center": {
+          ".validate": "newData.hasChildren(['0', '1'])"
+        },
+        "radius": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "createdBy": {
+          ".validate": "newData.isString()"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    }
+  }
+} 
