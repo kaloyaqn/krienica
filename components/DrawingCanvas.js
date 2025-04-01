@@ -3,22 +3,26 @@ import L from 'leaflet';
 
 export default function DrawingCanvas({ map, onZoneCreated, onCancel }) {
   const canvasRef = useRef(null);
-  const contextRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [points, setPoints] = useState([]);
-  const bounds = map.getBounds();
-  const size = map.getSize();
+  const [mouseData, setMouseData] = useState({ x: 0, y: 0 });
+  const [canvasCTX, setCanvasCTX] = useState(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size to match map container
+    const size = map.getSize();
     canvas.width = size.x;
     canvas.height = size.y;
     
-    const context = canvas.getContext('2d');
-    context.strokeStyle = '#4CAF50';
-    context.lineWidth = 3;
-    context.lineCap = 'round';
-    contextRef.current = context;
+    // Set drawing style
+    ctx.strokeStyle = '#4CAF50';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    setCanvasCTX(ctx);
 
     // Disable map interactions while drawing
     map.dragging.disable();
@@ -41,35 +45,71 @@ export default function DrawingCanvas({ map, onZoneCreated, onCancel }) {
     };
   }, [map]);
 
-  const startDrawing = ({ nativeEvent }) => {
-    const { offsetX, offsetY } = nativeEvent;
-    contextRef.current.beginPath();
-    contextRef.current.moveTo(offsetX, offsetY);
-    setIsDrawing(true);
+  const getPointFromEvent = (event) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
     
-    // Convert canvas coordinates to map coordinates
-    const point = L.point(offsetX, offsetY);
-    const latlng = map.containerPointToLatLng(point);
-    setPoints([latlng]);
+    let x, y;
+    if (event.touches) {
+      x = event.touches[0].clientX - rect.left;
+      y = event.touches[0].clientY - rect.top;
+    } else {
+      x = event.clientX - rect.left;
+      y = event.clientY - rect.top;
+    }
+
+    // Scale coordinates to match canvas size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+      x: x * scaleX,
+      y: y * scaleY
+    };
   };
 
-  const draw = ({ nativeEvent }) => {
+  const setPos = (event) => {
+    event.preventDefault();
+    const point = getPointFromEvent(event);
+    setMouseData(point);
+  };
+
+  const draw = (event) => {
+    event.preventDefault();
     if (!isDrawing) return;
 
-    const { offsetX, offsetY } = nativeEvent;
-    contextRef.current.lineTo(offsetX, offsetY);
-    contextRef.current.stroke();
+    const point = getPointFromEvent(event);
+    const ctx = canvasCTX;
+
+    ctx.beginPath();
+    ctx.moveTo(mouseData.x, mouseData.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+
+    setMouseData(point);
 
     // Convert canvas coordinates to map coordinates
-    const point = L.point(offsetX, offsetY);
-    const latlng = map.containerPointToLatLng(point);
+    const mapPoint = L.point(point.x, point.y);
+    const latlng = map.containerPointToLatLng(mapPoint);
     setPoints(prev => [...prev, latlng]);
   };
 
-  const stopDrawing = () => {
-    contextRef.current.closePath();
-    setIsDrawing(false);
+  const startDrawing = (event) => {
+    event.preventDefault();
+    setPos(event);
+    setIsDrawing(true);
+    
+    // Convert initial point to map coordinates
+    const point = getPointFromEvent(event);
+    const mapPoint = L.point(point.x, point.y);
+    const latlng = map.containerPointToLatLng(mapPoint);
+    setPoints([latlng]);
+  };
 
+  const stopDrawing = () => {
+    if (!isDrawing) return;
+    
+    setIsDrawing(false);
     if (points.length < 3) return;
 
     // Calculate the center and radius of the drawn shape
@@ -81,14 +121,24 @@ export default function DrawingCanvas({ map, onZoneCreated, onCancel }) {
       return sum + center.distanceTo(point);
     }, 0) / points.length;
 
-    // Create zone without asking for name
+    // Create zone
     onZoneCreated({
       center: [center.lat, center.lng],
       radius: radius
     });
+
+    // Clear the canvas
+    const ctx = canvasCTX;
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    setPoints([]);
   };
 
   const handleCancel = () => {
+    // Clear the canvas
+    const ctx = canvasCTX;
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    setPoints([]);
+    setIsDrawing(false);
     onCancel();
   };
 
@@ -98,26 +148,19 @@ export default function DrawingCanvas({ map, onZoneCreated, onCancel }) {
         ref={canvasRef}
         className="absolute inset-0 cursor-crosshair"
         onMouseDown={startDrawing}
-        onMouseMove={draw}
+        onMouseMove={(e) => {
+          setPos(e);
+          draw(e);
+        }}
         onMouseUp={stopDrawing}
         onMouseLeave={stopDrawing}
-        onTouchStart={(e) => {
-          e.preventDefault();
-          const touch = e.touches[0];
-          const rect = e.target.getBoundingClientRect();
-          const offsetX = touch.clientX - rect.left;
-          const offsetY = touch.clientY - rect.top;
-          startDrawing({ nativeEvent: { offsetX, offsetY } });
-        }}
+        onTouchStart={startDrawing}
         onTouchMove={(e) => {
-          e.preventDefault();
-          const touch = e.touches[0];
-          const rect = e.target.getBoundingClientRect();
-          const offsetX = touch.clientX - rect.left;
-          const offsetY = touch.clientY - rect.top;
-          draw({ nativeEvent: { offsetX, offsetY } });
+          setPos(e);
+          draw(e);
         }}
         onTouchEnd={stopDrawing}
+        onTouchCancel={stopDrawing}
       />
       <div className="absolute top-4 right-4 space-x-2">
         <button

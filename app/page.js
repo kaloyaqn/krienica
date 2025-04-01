@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/firebase/auth-hooks';
+import { useAuth } from '../lib/firebase/auth-hooks';
 
 export default function Home() {
   const router = useRouter();

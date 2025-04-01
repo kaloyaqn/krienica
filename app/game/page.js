@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { useAuth } from '@/lib/firebase/auth-hooks';
+import { useAuth } from '../../lib/firebase/auth-hooks';
 import Image from 'next/image';
 
 // Import the Map component dynamically to avoid SSR issues with Leaflet

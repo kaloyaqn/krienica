@@ -6,7 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import 'leaflet-draw';
-import { useAuth } from '@/lib/firebase/auth-hooks';
+import { useAuth } from '../lib/firebase/auth-hooks';
 import LocationSimulator from './LocationSimulator';
 import { database, auth } from '../lib/firebase';
 import { ref, onValue, set, push } from 'firebase/database';
@@ -331,7 +331,7 @@ function ZoneCreationModal({ isOpen, onClose, onSubmit }) {
               id="zoneName"
               value={zoneName}
               onChange={(e) => setZoneName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              className="w-full text-black px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
               placeholder="Въведете име на зоната"
               autoFocus
               required
@@ -971,7 +971,7 @@ export default function GameMap() {
       {/* Game Info Button */}
       <button
         onClick={() => setIsGameInfoOpen(true)}
-        className="fixed top-4 right-4 z-[1000] bg-white/90 backdrop-blur-sm rounded-full shadow-lg p-3 hover:bg-white/100 transition-all"text-black
+        className="fixed top-4 right-4 z-[1000] bg-white/90 backdrop-blur-sm rounded-full shadow-lg p-3 hover:bg-white/100 transition-all text-black"
         title="Информация за играта"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

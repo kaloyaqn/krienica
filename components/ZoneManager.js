@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, set, push } from 'firebase/database';
 import { database } from '../lib/firebase';
-import { useAuth } from '@/lib/firebase/auth-hooks';
+import { useAuth } from '../lib/firebase/auth-hooks';
 
 export default function ZoneManager({ onZoneSelect }) {
   const { user } = useAuth();
