@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, FeatureGroup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, FeatureGroup, Polygon } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
@@ -360,7 +360,7 @@ function ZoneCreationModal({ isOpen, onClose, onSubmit }) {
 }
 
 // Add key to force remount when position changes
-export default function GameMap() {
+export default function GameMap({ onZoneCreated }) {
   const { user } = useAuth();
   const [position, setPosition] = useState(null);
   const [error, setError] = useState(null);
@@ -660,8 +660,16 @@ export default function GameMap() {
     lastStatusUpdate.current = now;
 
     const isInAnyZone = zones.some(zone => {
-      const distance = L.latLng(position).distanceTo(L.latLng(zone.center));
-      return distance <= zone.radius;
+      if (zone.type === 'polygon') {
+        // For polygon zones, check if point is inside the polygon
+        const point = L.latLng(position);
+        const polygon = L.polygon(zone.coordinates);
+        return polygon.getBounds().contains(point);
+      } else {
+        // For circular zones, check distance from center
+        const distance = L.latLng(position).distanceTo(L.latLng(zone.center));
+        return distance <= zone.radius;
+      }
     });
 
     // Update player's status in the database
@@ -720,9 +728,14 @@ export default function GameMap() {
     updateLocation(newPos);
   };
 
-  const handleZoneCreated = async (zoneData) => {
-    if (!user) return;
-    setPendingZoneData(zoneData);
+  const handleZoneCreated = (coordinates) => {
+    console.log('GameMap: handleZoneCreated called with coordinates:', coordinates);
+    
+    // Store the polygon coordinates and show the creation modal
+    setPendingZoneData({
+      coordinates: coordinates,
+      type: 'polygon'
+    });
     setIsZoneCreationModalOpen(true);
   };
 
@@ -741,10 +754,10 @@ export default function GameMap() {
       });
       
       setPendingZoneData(null);
+      setIsZoneCreationModalOpen(false);
       setIsDrawingEnabled(false);
     } catch (error) {
       console.error('Error creating zone:', error);
-      alert('Грешка при създаване на зоната. Моля, опитайте отново.');
     }
   };
 
@@ -887,23 +900,40 @@ export default function GameMap() {
 
             {/* Game zones */}
             {zones.map((zone) => (
-              <Circle
-                key={zone.id}
-                center={zone.center}
-                radius={zone.radius}
-                pathOptions={{
-                  color: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
-                  fillColor: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
-                  fillOpacity: selectedZone?.id === zone.id ? 0.2 : 0.1,
-                  weight: selectedZone?.id === zone.id ? 3 : 2
-                }}
-              >
-                <Popup>
-                  <span className="text-black font-bold">{zone.name}</span>
-                  <br />
-                  <span className="text-black">Radius: {Math.round(zone.radius)}m</span>
-                </Popup>
-              </Circle>
+              zone.type === 'polygon' ? (
+                <Polygon
+                  key={zone.id}
+                  positions={zone.coordinates}
+                  pathOptions={{
+                    color: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
+                    fillColor: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
+                    fillOpacity: selectedZone?.id === zone.id ? 0.2 : 0.1,
+                    weight: selectedZone?.id === zone.id ? 3 : 2
+                  }}
+                >
+                  <Popup>
+                    <span className="text-black font-bold">{zone.name}</span>
+                  </Popup>
+                </Polygon>
+              ) : (
+                <Circle
+                  key={zone.id}
+                  center={zone.center}
+                  radius={zone.radius}
+                  pathOptions={{
+                    color: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
+                    fillColor: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
+                    fillOpacity: selectedZone?.id === zone.id ? 0.2 : 0.1,
+                    weight: selectedZone?.id === zone.id ? 3 : 2
+                  }}
+                >
+                  <Popup>
+                    <span className="text-black font-bold">{zone.name}</span>
+                    <br />
+                    <span className="text-black">Radius: {Math.round(zone.radius)}m</span>
+                  </Popup>
+                </Circle>
+              )
             ))}
 
             {/* Current player marker */}
@@ -944,12 +974,15 @@ export default function GameMap() {
             {/* Drawing control */}
             {isDrawingEnabled && (
               <DrawingCanvas
-                map={mapRef.current}
-                onZoneCreated={(zoneData) => {
-                  handleZoneCreated(zoneData);
+                onZoneCreated={(coordinates) => {
+                  console.log('GameMap: DrawingCanvas onZoneCreated called');
+                  handleZoneCreated(coordinates);
                   setIsDrawingEnabled(false);
                 }}
-                onCancel={() => setIsDrawingEnabled(false)}
+                onCancel={() => {
+                  console.log('GameMap: DrawingCanvas onCancel called');
+                  setIsDrawingEnabled(false);
+                }}
               />
             )}
           </MapContainer>
