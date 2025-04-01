@@ -11,6 +11,12 @@ import LocationSimulator from './LocationSimulator';
 import { database } from '../lib/firebase';
 import { ref, onValue, set, push } from 'firebase/database';
 import { debounce } from 'lodash';
+import dynamic from 'next/dynamic';
+
+// Dynamically import DrawingCanvas to avoid SSR issues
+const DrawingCanvas = dynamic(() => import('./DrawingCanvas'), {
+  ssr: false
+});
 
 // Fix for default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -960,7 +966,8 @@ export default function GameMap() {
 
             {/* Drawing control */}
             {isDrawingEnabled && (
-              <DrawingControl
+              <DrawingCanvas
+                map={mapRef.current}
                 onZoneCreated={(zoneData) => {
                   handleZoneCreated(zoneData);
                   setIsDrawingEnabled(false);
