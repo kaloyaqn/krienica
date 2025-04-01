@@ -97,7 +97,29 @@ function DrawingControl({ onZoneCreated, onCancel }) {
     drawnItems.current = new L.FeatureGroup();
     map.addLayer(drawnItems.current);
 
-    // Create draw control
+    // Disable map interactions when drawing starts
+    const disableMapInteractions = () => {
+      map.dragging.disable();
+      map.touchZoom.disable();
+      map.doubleClickZoom.disable();
+      map.scrollWheelZoom.disable();
+      map.boxZoom.disable();
+      map.keyboard.disable();
+      if (map.tap) map.tap.disable();
+    };
+
+    // Enable map interactions when drawing stops
+    const enableMapInteractions = () => {
+      map.dragging.enable();
+      map.touchZoom.enable();
+      map.doubleClickZoom.enable();
+      map.scrollWheelZoom.enable();
+      map.boxZoom.enable();
+      map.keyboard.enable();
+      if (map.tap) map.tap.enable();
+    };
+
+    // Create draw control with mobile-friendly options
     drawControl.current = new L.Control.Draw({
       position: 'topright',
       draw: {
@@ -111,7 +133,8 @@ function DrawingControl({ onZoneCreated, onCancel }) {
             fillColor: '#4CAF50',
             fillOpacity: 0.2,
             weight: 3
-          }
+          },
+          repeatMode: false // Disable repeat mode for better mobile experience
         },
         circlemarker: false,
         marker: false,
@@ -130,15 +153,14 @@ function DrawingControl({ onZoneCreated, onCancel }) {
 
     // Handle circle creation
     map.on('draw:created', (e) => {
-      if (isDrawing.current) return; // Prevent multiple creations
+      if (isDrawing.current) return;
       isDrawing.current = true;
       
       const layer = e.layer;
       const center = layer.getLatLng();
       const radius = layer.getRadius();
       
-      // Prompt for zone name
-      const name = prompt('Enter zone name:');
+      const name = prompt('Въведете име на зоната:');
       if (name) {
         onZoneCreated({
           name,
@@ -147,22 +169,22 @@ function DrawingControl({ onZoneCreated, onCancel }) {
         });
       }
       isDrawing.current = false;
+      enableMapInteractions();
     });
 
     // Handle drawing start
     map.on('draw:drawstart', () => {
-      map.dragging.disable();
-      map.touchZoom.disable();
-      map.scrollWheelZoom.disable();
-      map.doubleClickZoom.disable();
+      disableMapInteractions();
     });
 
     // Handle drawing stop
     map.on('draw:drawstop', () => {
-      map.dragging.enable();
-      map.touchZoom.enable();
-      map.scrollWheelZoom.enable();
-      map.doubleClickZoom.enable();
+      enableMapInteractions();
+    });
+
+    // Handle drawing cancel
+    map.on('draw:deletestop', () => {
+      enableMapInteractions();
     });
 
     return () => {
@@ -172,17 +194,198 @@ function DrawingControl({ onZoneCreated, onCancel }) {
       if (drawnItems.current) {
         map.removeLayer(drawnItems.current);
       }
-      // Re-enable map interactions
-      map.dragging.enable();
-      map.touchZoom.enable();
-      map.scrollWheelZoom.enable();
-      map.doubleClickZoom.enable();
+      enableMapInteractions();
     };
   }, [map, onZoneCreated]);
 
   return null;
 }
 
+// Add Safari detection
+const isSafari = () => {
+  const ua = navigator.userAgent.toLowerCase();
+  return ua.includes('safari') && !ua.includes('chrome');
+};
+
+// Profile Component
+function ProfileOverlay({ user, position, useSimulator, setUseSimulator }) {
+  const { auth } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  
+  // Handle click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+  
+  return (
+    <div className="fixed top-4 left-4 z-[1000]" ref={menuRef}>
+      <button 
+        onClick={() => setIsMenuOpen(!isMenuOpen)}
+        className="flex items-center space-x-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg p-2 pr-4 hover:bg-white/100 transition-all"
+      >
+        <img 
+          src={user.photoURL || '/default-avatar.png'} 
+          alt={user.displayName}
+          className="w-8 h-8 rounded-full border-2 border-white"
+        />
+        <span className="font-medium text-gray-800">{user.displayName}</span>
+      </button>
+
+      {/* Profile Menu */}
+      {isMenuOpen && (
+        <div className="absolute top-full left-0 mt-2 w-48 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-2">
+          <div className="p-2 text-sm text-gray-600 border-b border-gray-200">
+            <div>ID: {user.uid.slice(0, 8)}...</div>
+            <div>Позиция: {position ? `[${position[0].toFixed(4)}, ${position[1].toFixed(4)}]` : 'Няма'}</div>
+          </div>
+          <button 
+            onClick={() => setUseSimulator(!useSimulator)}
+            className="w-full text-left p-2 hover:bg-white/80 rounded text-sm text-gray-700"
+          >
+            {useSimulator ? 'Използвай GPS' : 'Използвай симулатор'}
+          </button>
+          <button 
+            onClick={() => auth.signOut()}
+            className="w-full text-left p-2 hover:bg-white/80 rounded text-sm text-red-600"
+          >
+            Изход
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Game Info Modal
+function GameInfoModal({ isOpen, onClose, zones, players, user }) {
+  const modalRef = useRef(null);
+
+  // Handle click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (modalRef.current && !modalRef.current.contains(event.target)) {
+        onClose();
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1500] flex items-center justify-center p-4">
+      <div ref={modalRef} className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-xl font-semibold text-gray-800">Информация за играта</h2>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            ✕
+          </button>
+        </div>
+        
+        <div className="p-4 overflow-y-auto max-h-[calc(80vh-4rem)] space-y-6">
+          {/* Zones Section */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3 text-gray-800">Игрални зони</h3>
+            <div className="space-y-2">
+              {zones.length === 0 ? (
+                <p className="text-gray-500">Няма създадени зони</p>
+              ) : (
+                zones.map((zone) => (
+                  <div 
+                    key={zone.id}
+                    className="p-3 rounded-lg border border-gray-200 bg-gray-50"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-medium text-gray-800">{zone.name}</h4>
+                        <p className="text-sm text-gray-600">
+                          Радиус: {Math.round(zone.radius)}м
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Създадена: {new Date(zone.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteZone(zone.id)}
+                        className="text-red-500 hover:text-red-700 p-1"
+                        title="Изтрий зона"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Players Section */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3 text-gray-800">Играчи</h3>
+            <div className="space-y-2">
+              {Object.entries(players).map(([playerId, playerData]) => (
+                <div 
+                  key={playerId}
+                  className={`p-3 rounded-lg border ${
+                    playerData.isOutsideZone 
+                      ? 'border-red-200 bg-red-50' 
+                      : 'border-green-200 bg-green-50'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <img 
+                      src={playerData.photoURL || '/default-avatar.png'} 
+                      alt={playerData.displayName}
+                      className="w-8 h-8 rounded-full"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-800">
+                        {playerData.displayName}
+                        {playerId === user.uid && ' (Вие)'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Последно обновяване: {new Date(playerData.timestamp).toLocaleTimeString()}
+                      </div>
+                      {playerData.isOutsideZone && (
+                        <div className="text-sm text-red-600 font-medium mt-1">
+                          ⚠️ Извън игралната зона
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Add key to force remount when position changes
 export default function GameMap() {
   const { user } = useAuth();
   const [position, setPosition] = useState(null);
@@ -197,7 +400,9 @@ export default function GameMap() {
   const notifiedPlayers = useRef(new Map());
   const lastStatusUpdate = useRef(null);
   const mapRef = useRef(null);
-  const locationWatchId = useRef(null);
+  const watchIdRef = useRef(null);
+  const timeoutRef = useRef(null);
+  const [isGameInfoOpen, setIsGameInfoOpen] = useState(false);
 
   // Add notification function with cooldown
   const addNotification = (playerId, message) => {
@@ -245,87 +450,228 @@ export default function GameMap() {
     [user, players]
   );
 
-  // Get initial position and watch for changes with auto-reconnect
+  // Function to request location permission explicitly
+  const requestLocationPermission = useCallback(async () => {
+    try {
+      const result = await navigator.permissions.query({ name: 'geolocation' });
+      if (result.state === 'prompt' || result.state === 'denied') {
+        // For Safari, we need to call getCurrentPosition to trigger the permission prompt
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            // Permission granted, start watching
+            startLocationWatch();
+          },
+          (err) => {
+            console.error('Permission error:', err);
+            handleLocationError(err);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      } else if (result.state === 'granted') {
+        startLocationWatch();
+      }
+    } catch (err) {
+      // Safari might not support permissions API, fallback to direct getCurrentPosition
+      if (isSafari()) {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            // Permission granted, start watching
+            startLocationWatch();
+          },
+          (err) => {
+            console.error('Safari permission error:', err);
+            handleLocationError(err);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      }
+    }
+  }, []);
+
+  // Function to start location watching
+  const startLocationWatch = useCallback(() => {
+    if (!navigator.geolocation) {
+      setError('Вашият браузър не поддържа определяне на местоположение');
+      setIsLocating(false);
+      return;
+    }
+
+    setIsLocating(true);
+
+    // Clear existing watch
+    if (watchIdRef.current) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    const handleSuccess = (pos) => {
+      const coords = pos?.coords;
+      if (!coords?.latitude || !coords?.longitude) {
+        handleLocationError({ code: 2, message: 'Invalid coordinates received' });
+        return;
+      }
+
+      const newPos = [coords.latitude, coords.longitude];
+      setPosition(newPos);
+      updateLocation(newPos);
+      setError(null);
+      setIsLocating(false);
+      
+      // Reset timeout values on successful position
+      timeoutRef.current = BASE_TIMEOUT;
+      
+      // Log successful position update
+      console.log('Position updated:', {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: coords.accuracy,
+        timestamp: new Date().toISOString()
+      });
+    };
+
+    const handleError = (err) => {
+      // Handle empty error object
+      if (!err || Object.keys(err).length === 0) {
+        handleLocationError({
+          code: 2,
+          message: 'Empty error object received from geolocation API'
+        });
+        return;
+      }
+
+      handleLocationError(err);
+
+      // Progressive timeout strategy for timeout errors
+      if (err.code === 3) { // Timeout error
+        timeoutRef.current = Math.min(timeoutRef.current * 1.5, MAX_TIMEOUT);
+        console.log('Increasing timeout to:', timeoutRef.current);
+        
+        // Immediate retry with new timeout
+        setTimeout(() => {
+          if (watchIdRef.current) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+          }
+          startLocationWatch();
+        }, 1000);
+        return;
+      }
+
+      // Try to restart watching if we lose position (but not for permission denied)
+      if (err.code !== 1) {
+        setTimeout(() => {
+          if (watchIdRef.current) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+          }
+          startLocationWatch();
+        }, 5000);
+      }
+    };
+
+    // Base timeout values
+    const BASE_TIMEOUT = isSafari() ? 10000 : 5000;
+    const MAX_TIMEOUT = 30000;
+    timeoutRef.current = BASE_TIMEOUT;
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: timeoutRef.current,
+      maximumAge: 0 // Don't use cached positions
+    };
+
+    try {
+      // Get initial position with shorter timeout
+      navigator.geolocation.getCurrentPosition(
+        handleSuccess,
+        handleError,
+        {
+          ...options,
+          timeout: BASE_TIMEOUT // Use base timeout for initial position
+        }
+      );
+
+      // Start watching position with current timeout value
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        handleSuccess,
+        handleError,
+        options
+      );
+
+      // Set up a periodic check to ensure watch is still active
+      const checkInterval = setInterval(() => {
+        if (!watchIdRef.current) {
+          clearInterval(checkInterval);
+          startLocationWatch();
+        }
+      }, 10000);
+
+      return () => {
+        clearInterval(checkInterval);
+        if (watchIdRef.current) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+        }
+      };
+    } catch (e) {
+      console.error('Error setting up geolocation:', e);
+      handleLocationError({
+        code: 2,
+        message: 'Failed to initialize geolocation'
+      });
+    }
+  }, [updateLocation, position]);
+
+  // Handle location errors with more specific timeout messaging
+  const handleLocationError = (error) => {
+    let errorMessage = 'Неизвестна грешка при определяне на местоположението';
+    
+    if (error) {
+      switch(error.code) {
+        case error.PERMISSION_DENIED:
+          errorMessage = 'Достъпът до местоположението е отказан. Моля, разрешете достъп в настройките на браузъра.';
+          break;
+        case error.POSITION_UNAVAILABLE:
+          errorMessage = 'В момента местоположението е недостъпно. Моля, проверете GPS връзката.';
+          break;
+        case error.TIMEOUT:
+          errorMessage = 'Времето за определяне на местоположението изтече. Опитваме отново с по-дълго изчакване...';
+          break;
+      }
+    }
+    
+    // Only show error message for non-timeout errors or if we don't have a position yet
+    if (error?.code !== 3 || !position) {
+      setError(errorMessage);
+    }
+    
+    // Only update isLocating for non-timeout errors
+    if (error?.code !== 3) {
+      setIsLocating(false);
+    }
+    
+    // Log detailed error information
+    console.error('Location Error:', {
+      code: error?.code,
+      message: error?.message,
+      errorMessage,
+      timestamp: new Date().toISOString(),
+      hasPosition: !!position
+    });
+  };
+
+  // Initialize location tracking
   useEffect(() => {
     if (!user || useSimulator) return;
 
-    let watchId = null;
-    let reconnectTimeout = null;
-    const RECONNECT_DELAY = 2000; // 2 seconds
-
-    const startWatching = () => {
-      if (watchId) {
-        navigator.geolocation.clearWatch(watchId);
-      }
-
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const newPos = [pos.coords.latitude, pos.coords.longitude];
-          setPosition(newPos);
-          updateLocation(newPos);
-          setError(null);
-          setIsLocating(false);
-        },
-        (err) => {
-          console.error('Location watch error:', err);
-          // Only set error if it's a permission issue
-          if (err.code === 1) { // PERMISSION_DENIED
-            setError('Please enable location services to use this app');
-            setIsLocating(false);
-          } else {
-            // For other errors, try to reconnect
-            if (reconnectTimeout) clearTimeout(reconnectTimeout);
-            reconnectTimeout = setTimeout(startWatching, RECONNECT_DELAY);
-          }
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 1000
-        }
-      );
-
-      // Get initial position immediately
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const newPos = [pos.coords.latitude, pos.coords.longitude];
-          setPosition(newPos);
-          updateLocation(newPos);
-          setError(null);
-          setIsLocating(false);
-        },
-        (err) => {
-          console.error('Initial position error:', err);
-          if (err.code === 1) { // PERMISSION_DENIED
-            setError('Please enable location services to use this app');
-          }
-          setIsLocating(false);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        }
-      );
-    };
-
-    // Start watching immediately
-    startWatching();
-
-    // Set up an interval to check if we're still getting updates
-    const checkInterval = setInterval(() => {
-      if (!position) {
-        console.log('No position updates, restarting watch...');
-        startWatching();
-      }
-    }, 10000); // Check every 10 seconds
+    requestLocationPermission();
 
     return () => {
-      if (watchId) navigator.geolocation.clearWatch(watchId);
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      clearInterval(checkInterval);
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
     };
-  }, [user, useSimulator, updateLocation]);
+  }, [user, useSimulator, requestLocationPermission]);
 
   // Check if player is outside any zone and update status - with rate limiting
   useEffect(() => {
@@ -402,16 +748,21 @@ export default function GameMap() {
     if (!user) return;
 
     try {
-      const zonesRef = ref(database, 'zones');
-      const newZoneRef = push(zonesRef);
-      
-      await set(newZoneRef, {
-        ...zoneData,
-        createdBy: user.uid,
-        createdAt: Date.now()
-      });
+      const name = prompt('Въведете име на зоната:');
+      if (name) {
+        const zonesRef = ref(database, 'zones');
+        const newZoneRef = push(zonesRef);
+        
+        await set(newZoneRef, {
+          ...zoneData,
+          name,
+          createdBy: user.uid,
+          createdAt: Date.now()
+        });
+      }
     } catch (error) {
       console.error('Error creating zone:', error);
+      alert('Грешка при създаване на зоната. Моля, опитайте отново.');
     }
   };
 
@@ -448,9 +799,19 @@ export default function GameMap() {
     return () => unsubscribe();
   }, [user]);
 
+  // Add map instance cleanup
+  useEffect(() => {
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []);
+
   if (!user) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="fixed inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         <span className="ml-3">Loading...</span>
       </div>
@@ -459,30 +820,43 @@ export default function GameMap() {
 
   if (error && !useSimulator) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm z-50 p-4">
         <p className="text-red-500 mb-4">{error}</p>
         <p className="text-sm mb-4">
-          Please make sure:
-          <br />- Location services are enabled in your device settings
-          <br />- You&apos;ve given permission to access location in your browser
-          <br />- You&apos;re using a secure (HTTPS) connection
-          <br />- You&apos;re not in private/incognito mode
+          {isSafari() ? (
+            <>
+              За потребители на Safari:
+              <br />1. Отидете в Настройки {'->'} Safari
+              <br />2. Превъртете до Поверителност и Сигурност
+              <br />3. Активирайте Услуги за местоположение
+              <br />4. Разрешете достъп за този сайт
+              <br />5. Презаредете страницата
+            </>
+          ) : (
+            <>
+              Моля, проверете:
+              <br />- Дали услугите за местоположение са активирани
+              <br />- Дали сте разрешили достъп до местоположението
+              <br />- Дали използвате защитена връзка (HTTPS)
+              <br />- Дали не сте в режим инкогнито
+            </>
+          )}
         </p>
         <button
           onClick={() => {
             setError(null);
             setIsLocating(true);
-            window.location.reload();
+            requestLocationPermission();
           }}
           className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mb-4"
         >
-          Try Again
+          Опитай отново
         </button>
         <button
           onClick={() => setUseSimulator(true)}
           className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
         >
-          Use Location Simulator
+          Използвай симулатор
         </button>
       </div>
     );
@@ -490,198 +864,178 @@ export default function GameMap() {
 
   if (isLocating && !useSimulator) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm z-50 p-4">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-        <p className="text-black">Getting your location...</p>
-        <p className="text-sm text-gray-500 mt-2">Please allow location access when prompted</p>
+        <p className="text-black">Определяне на местоположението...</p>
+        <p className="text-sm text-gray-500 mt-2">Моля, разрешете достъп до местоположението</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col md:flex-row gap-4">
-      <div className="w-full md:w-3/4 h-[500px] md:h-full relative">
+    <div className="fixed inset-0 overflow-hidden">
+      {/* Map as background - always full viewport */}
+      <div className="absolute inset-0 z-0">
         {position ? (
-          <>
-            <MapContainer
-              center={position}
-              zoom={15}
-              style={{ height: '100%', width: '100%' }}
-              ref={mapRef}
-            >
-              <MapUpdater position={position} />
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              />
-              
-              {/* Game zones */}
-              {zones.map((zone) => (
-                <Circle
-                  key={zone.id}
-                  center={zone.center}
-                  radius={zone.radius}
-                  pathOptions={{
-                    color: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
-                    fillColor: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
-                    fillOpacity: selectedZone?.id === zone.id ? 0.2 : 0.1,
-                    weight: selectedZone?.id === zone.id ? 3 : 2
-                  }}
-                >
-                  <Popup>
-                    <span className="text-black font-bold">{zone.name}</span>
-                    <br />
-                    <span className="text-black">Radius: {Math.round(zone.radius)}m</span>
-                  </Popup>
-                </Circle>
-              ))}
+          <MapContainer
+            key={`map-${position?.join(',')}`}
+            center={position}
+            zoom={15}
+            style={{ height: '100vh', width: '100vw' }}
+            ref={mapRef}
+            zoomControl={false}
+            className="h-screen w-screen"
+          >
+            <MapUpdater position={position} />
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            />
+            
+            {/* Add zoom control in a better position */}
+            <div className="leaflet-control-container">
+              <div className="leaflet-top leaflet-left">
+                <div className="leaflet-control-zoom leaflet-bar leaflet-control">
+                  <a className="leaflet-control-zoom-in" href="#" title="Zoom in" role="button" aria-label="Zoom in">+</a>
+                  <a className="leaflet-control-zoom-out" href="#" title="Zoom out" role="button" aria-label="Zoom out">−</a>
+                </div>
+              </div>
+            </div>
 
-              {/* Current player marker */}
-              <Marker
-                position={position}
-                icon={createMarkerIcon(user.photoURL, true)}
+            {/* Game zones */}
+            {zones.map((zone) => (
+              <Circle
+                key={zone.id}
+                center={zone.center}
+                radius={zone.radius}
+                pathOptions={{
+                  color: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
+                  fillColor: selectedZone?.id === zone.id ? '#4CAF50' : 'blue',
+                  fillOpacity: selectedZone?.id === zone.id ? 0.2 : 0.1,
+                  weight: selectedZone?.id === zone.id ? 3 : 2
+                }}
               >
                 <Popup>
-                  <span className="text-black">You ({user.displayName})</span>
+                  <span className="text-black font-bold">{zone.name}</span>
                   <br />
-                  <span className="text-black">Current Location</span>
+                  <span className="text-black">Radius: {Math.round(zone.radius)}m</span>
                 </Popup>
-              </Marker>
+              </Circle>
+            ))}
 
-              {/* Other players markers */}
-              {Object.entries(players).map(([playerId, playerData]) => {
-                if (playerId === user.uid) return null;
-                return (
-                  <Marker
-                    key={playerId}
-                    position={playerData.position}
-                    icon={createMarkerIcon(playerData.photoURL)}
-                  >
-                    <Popup>
-                      <span className="text-black">{playerData.displayName}</span>
-                      <br />
-                      <span className="text-black">Last updated: {new Date(playerData.timestamp).toLocaleTimeString()}</span>
-                      {playerData.isOutsideZone && (
-                        <div className="mt-2 text-red-500 font-bold">
-                          ⚠️ Outside Game Zone
-                        </div>
-                      )}
-                    </Popup>
-                  </Marker>
-                );
-              })}
+            {/* Current player marker */}
+            <Marker
+              position={position}
+              icon={createMarkerIcon(user.photoURL, true)}
+            >
+              <Popup>
+                <span className="text-black">You ({user.displayName})</span>
+                <br />
+                <span className="text-black">Current Location</span>
+              </Popup>
+            </Marker>
 
-              {/* Drawing control */}
-              {isDrawingEnabled && (
-                <DrawingControl
-                  onZoneCreated={(zoneData) => {
-                    handleZoneCreated(zoneData);
-                    setIsDrawingEnabled(false);
-                  }}
-                  onCancel={() => setIsDrawingEnabled(false)}
-                />
-              )}
-            </MapContainer>
-            {!isDrawingEnabled && (
-              <button
-                onClick={() => setIsDrawingEnabled(true)}
-                className="absolute bottom-4 left-4 z-[1000] px-4 py-2 bg-white rounded-lg shadow-lg hover:bg-gray-100 flex items-center gap-2 text-black"
-              >
-                <span>Draw Zone</span>
-                <span className="text-green-500">⭕</span>
-              </button>
-            )}
-            {isDrawingEnabled && (
-              <button
-                onClick={() => setIsDrawingEnabled(false)}
-                className="absolute bottom-4 left-4 z-[1000] px-4 py-2 bg-white rounded-lg shadow-lg hover:bg-gray-100 flex items-center gap-2 text-black"
-              >
-                <span>Cancel Drawing</span>
-                <span className="text-red-500">✕</span>
-              </button>
-            )}
-          </>
-        ) : (
-          <div className="h-full flex items-center justify-center bg-gray-100">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            <span className="ml-3 text-black">Getting your location...</span>
-          </div>
-        )}
-      </div>
-      
-      <div className="w-full md:w-1/4 space-y-4">
-        {/* Zone Management Panel */}
-        <div className="bg-white rounded-lg shadow-lg p-4">
-          <h2 className="text-lg font-semibold mb-4 text-black">Game Zones</h2>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {zones.length === 0 ? (
-              <p className="text-gray-500 text-sm">No zones created yet</p>
-            ) : (
-              zones.map((zone) => (
-                <div 
-                  key={zone.id}
-                  className={`p-3 rounded-lg border ${
-                    selectedZone?.id === zone.id 
-                      ? 'border-green-500 bg-green-50' 
-                      : 'border-gray-200'
-                  }`}
+            {/* Other players markers */}
+            {Object.entries(players).map(([playerId, playerData]) => {
+              if (playerId === user.uid) return null;
+              return (
+                <Marker
+                  key={playerId}
+                  position={playerData.position}
+                  icon={createMarkerIcon(playerData.photoURL)}
                 >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-medium text-black">{zone.name}</h3>
-                      <p className="text-sm text-gray-600">
-                        Radius: {Math.round(zone.radius)}m
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Created: {new Date(zone.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleDeleteZone(zone.id)}
-                      className="text-red-500 hover:text-red-700 p-1"
-                      title="Delete zone"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+                  <Popup>
+                    <span className="text-black">{playerData.displayName}</span>
+                    <br />
+                    <span className="text-black">Last updated: {new Date(playerData.timestamp).toLocaleTimeString()}</span>
+                    {playerData.isOutsideZone && (
+                      <div className="mt-2 text-red-500 font-bold">
+                        ⚠️ Outside Game Zone
+                      </div>
+                    )}
+                  </Popup>
+                </Marker>
+              );
+            })}
 
-        {/* Location Simulator */}
-        {useSimulator && (
-          <LocationSimulator onLocationUpdate={handleSimulatedLocation} />
+            {/* Drawing control */}
+            {isDrawingEnabled && (
+              <DrawingControl
+                onZoneCreated={(zoneData) => {
+                  handleZoneCreated(zoneData);
+                  setIsDrawingEnabled(false);
+                }}
+                onCancel={() => setIsDrawingEnabled(false)}
+              />
+            )}
+          </MapContainer>
+        ) : (
+          <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            <span className="ml-3 text-black">Определяне на местоположението...</span>
+          </div>
         )}
       </div>
 
-      {/* Debug info */}
-      <div className="fixed bottom-4 right-4 p-4 bg-white rounded-lg shadow-lg text-xs text-black">
-        <p>Your ID: {user.uid}</p>
-        <p>Position: {position ? `[${position[0]}, ${position[1]}]` : 'None'}</p>
-        <p>Other players: {Object.keys(players).length - 1}</p>
-        <p>Active zones: {zones.length}</p>
-        <button 
-          onClick={() => setUseSimulator(true)}
-          className="mt-2 px-2 py-1 bg-blue-500 text-white rounded text-xs"
-        >
-          Show Simulator
-        </button>
+      {/* Profile Overlay with required props */}
+      <ProfileOverlay 
+        user={user} 
+        position={position} 
+        useSimulator={useSimulator}
+        setUseSimulator={setUseSimulator}
+      />
+
+      {/* Game Info Button */}
+      <button
+        onClick={() => setIsGameInfoOpen(true)}
+        className="fixed top-4 right-4 z-[1000] bg-white/90 backdrop-blur-sm rounded-full shadow-lg p-3 hover:bg-white/100 transition-all"
+        title="Информация за играта"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </button>
+
+      {/* Game Info Modal */}
+      <GameInfoModal
+        isOpen={isGameInfoOpen}
+        onClose={() => setIsGameInfoOpen(false)}
+        zones={zones}
+        players={players}
+        user={user}
+      />
+
+      {/* Draw Zone Button - fixed at bottom */}
+      <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-[1000]">
+        {!isDrawingEnabled ? (
+          <button
+            onClick={() => setIsDrawingEnabled(true)}
+            className="px-6 py-3 bg-green-500 text-white rounded-full shadow-lg hover:bg-green-600 flex items-center gap-2 transition-all"
+          >
+            <span>Начертай зона</span>
+            <span>⭕</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsDrawingEnabled(false)}
+            className="px-6 py-3 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 flex items-center gap-2 transition-all"
+          >
+            <span>Отказ</span>
+            <span>✕</span>
+          </button>
+        )}
       </div>
 
-      {/* Notifications */}
-      <div className="fixed top-4 right-4 z-[2000] space-y-2 min-w-[300px]">
+      {/* Notifications - fixed at top left */}
+      <div className="fixed top-16 left-4 z-[2000] space-y-2 w-[90vw] max-w-[300px]">
         {notifications.map(notification => (
           <div
             key={notification.id}
-            className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg"
+            className="bg-red-100/90 backdrop-blur-sm border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg"
             role="alert"
           >
             <div className="flex justify-between items-start">
-              <p className="font-bold">{notification.message}</p>
+              <p className="font-bold text-sm">{notification.message.replace('is outside the game zones', 'е извън игралните зони')}</p>
               <button
                 onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
                 className="ml-4 text-red-500 hover:text-red-700"
