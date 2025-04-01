@@ -28,69 +28,60 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
   useEffect(() => {
     console.log('DrawingCanvas mounted');
 
+    const mapContainer = map.getContainer();
+    const handleMapClick = (e) => {
+      if (!isDrawing) return;
+      
+      const latlng = e.latlng;
+      setPoints(prev => [...prev, latlng]);
+    };
+
+    const handleMove = (e) => {
+      if (!isDrawing || points.length === 0) return;
+      
+      const latlng = e.latlng;
+      setMousePosition(latlng);
+      
+      if (tempLineRef.current) {
+        map.removeLayer(tempLineRef.current);
+      }
+      
+      tempLineRef.current = L.polyline([
+        points[points.length - 1],
+        latlng
+      ], {
+        color: '#4CAF50',
+        weight: 2,
+        dashArray: '5, 10'
+      }).addTo(map);
+    };
+
+    const handleTouchStart = (e) => {
+      if (!isDrawing) return;
+      
+      // Prevent default touch behavior
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const touch = e.touches[0];
+      const latlng = map.containerPointToLatLng([touch.clientX, touch.clientY]);
+      setPoints(prev => [...prev, latlng]);
+    };
+
     // Disable map interactions while drawing
     map.dragging.disable();
     map.touchZoom.disable();
     map.scrollWheelZoom.disable();
     map.doubleClickZoom.disable();
 
-    // Set cursor style for drawing mode
-    const mapContainer = map.getContainer();
+    // Set cursor style
     mapContainer.style.cursor = 'crosshair';
-
-    // Handle map clicks
-    const handleMapClick = (e) => {
-      if (!isDrawing) return;
-      
-      const newPoint = e.latlng;
-      setPoints(prev => [...prev, newPoint]);
-    };
-
-    // Handle mouse move and touch move
-    const handleMove = (e) => {
-      if (!isDrawing || points.length === 0) return;
-      
-      const currentPoint = e.latlng;
-      setMousePosition(currentPoint);
-
-      // Update the temporary line
-      if (tempLineRef.current) {
-        map.removeLayer(tempLineRef.current);
-      }
-
-      tempLineRef.current = L.polyline([
-        points[points.length - 1],
-        currentPoint
-      ], {
-        color: '#4CAF50',
-        weight: 2,
-        dashArray: '5, 10',
-        opacity: 0.7
-      }).addTo(map);
-    };
-
-    // Handle touch events
-    const handleTouchStart = (e) => {
-      if (!isDrawing) return;
-
-      // Get the original DOM event
-      const originalEvent = e.originalEvent;
-      if (originalEvent) {
-        originalEvent.preventDefault();
-      }
-
-      // Just add the point
-      handleMapClick(e);
-    };
 
     // Add event listeners
     map.on('click', handleMapClick);
     map.on('mousemove', handleMove);
     map.on('touchstart', handleTouchStart);
     map.on('touchmove', handleMove);
-
-    // Start drawing
-    setIsDrawing(true);
 
     // Cleanup function
     return () => {
@@ -123,6 +114,7 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
     e.preventDefault();
     L.DomEvent.stopPropagation(e);
     L.DomEvent.disableClickPropagation(e.currentTarget);
+    L.DomEvent.disableTouchPropagation(e.currentTarget);
     
     if (tempPolygonRef.current) {
       map.removeLayer(tempPolygonRef.current);
@@ -142,6 +134,7 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
     e.preventDefault();
     L.DomEvent.stopPropagation(e);
     L.DomEvent.disableClickPropagation(e.currentTarget);
+    L.DomEvent.disableTouchPropagation(e.currentTarget);
     
     if (points.length >= 3) {
       const coordinates = [...points.map(point => [point.lat, point.lng])];
@@ -168,12 +161,21 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
         e.preventDefault();
         L.DomEvent.stopPropagation(e);
         L.DomEvent.disableClickPropagation(e.currentTarget);
+        L.DomEvent.disableTouchPropagation(e.currentTarget);
       }}
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
         L.DomEvent.stopPropagation(e);
         L.DomEvent.disableClickPropagation(e.currentTarget);
+        L.DomEvent.disableTouchPropagation(e.currentTarget);
+      }}
+      onTouchStart={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        L.DomEvent.stopPropagation(e);
+        L.DomEvent.disableClickPropagation(e.currentTarget);
+        L.DomEvent.disableTouchPropagation(e.currentTarget);
       }}
     >
       <div className="bg-white p-4 rounded-lg shadow-lg mb-2">
@@ -187,6 +189,14 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
             e.preventDefault();
             L.DomEvent.stopPropagation(e);
             L.DomEvent.disableClickPropagation(e.currentTarget);
+            L.DomEvent.disableTouchPropagation(e.currentTarget);
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.disableClickPropagation(e.currentTarget);
+            L.DomEvent.disableTouchPropagation(e.currentTarget);
           }}
           className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow-lg"
         >
@@ -199,6 +209,14 @@ const DrawingCanvas = ({ onZoneCreated, onCancel }) => {
             e.preventDefault();
             L.DomEvent.stopPropagation(e);
             L.DomEvent.disableClickPropagation(e.currentTarget);
+            L.DomEvent.disableTouchPropagation(e.currentTarget);
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.disableClickPropagation(e.currentTarget);
+            L.DomEvent.disableTouchPropagation(e.currentTarget);
           }}
           className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-lg"
         >
