@@ -516,77 +516,7 @@ export default function GameMap({ onZoneCreated }) {
     requestBackgroundLocation();
   }, [user, useSimulator]);
 
-  // Add iOS-specific location tracking
-  useEffect(() => {
-    if (!user || useSimulator) return;
-
-    // Check if we're on iOS
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    if (!isIOS) return;
-
-    // For iOS, we'll use a different strategy
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // When the app goes to background on iOS
-        // Show a notification to keep the app active
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Играта е активна', {
-            body: 'Вашето местоположение се следи',
-            icon: '/icon-192x192.png',
-            badge: '/badge-72x72.png',
-            vibrate: [200, 100, 200],
-            tag: 'location-update',
-            renotify: true,
-            requireInteraction: true
-          });
-        }
-
-        // Increase location update frequency
-        if (watchIdRef.current) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-          watchIdRef.current = null;
-        }
-
-        const options = {
-          enableHighAccuracy: true,
-          timeout: 5000,
-          maximumAge: 0,
-          distanceFilter: 5 // Update more frequently
-        };
-
-        watchIdRef.current = navigator.geolocation.watchPosition(
-          (pos) => {
-            const coords = pos?.coords;
-            if (!coords?.latitude || !coords?.longitude) return;
-
-            const newPos = [coords.latitude, coords.longitude];
-            setPosition(newPos);
-            updateLocation(newPos);
-          },
-          (err) => {
-            console.error('iOS background location error:', err);
-          },
-          options
-        );
-      } else {
-        // When the app comes back to foreground
-        // Restore normal location tracking
-        if (watchIdRef.current) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-          watchIdRef.current = null;
-        }
-        startLocationWatch();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [user, useSimulator, startLocationWatch, updateLocation]);
-
-  // Update the startLocationWatch function to handle iOS
+  // Function to start location watching
   const startLocationWatch = useCallback(() => {
     if (!navigator.geolocation) {
       setError('Вашият браузър не поддържа определяне на местоположение');
@@ -625,45 +555,71 @@ export default function GameMap({ onZoneCreated }) {
         accuracy: coords.accuracy,
         timestamp: new Date().toISOString()
       });
+    };
 
-      // Check if we're on iOS
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-      
-      if (isIOS && document.hidden) {
-        // For iOS in background, show a notification
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Играта е активна', {
-            body: 'Вашето местоположение се следи',
-            icon: '/icon-192x192.png',
-            badge: '/badge-72x72.png',
-            vibrate: [200, 100, 200],
-            tag: 'location-update',
-            renotify: true,
-            requireInteraction: true
-          });
-        }
+    const handleError = (err) => {
+      // Handle empty error object
+      if (!err || Object.keys(err).length === 0) {
+        handleLocationError({
+          code: 2,
+          message: 'Empty error object received from geolocation API'
+        });
+        return;
+      }
+
+      handleLocationError(err);
+
+      // Progressive timeout strategy for timeout errors
+      if (err.code === 3) { // Timeout error
+        timeoutRef.current = Math.min(timeoutRef.current * 1.5, MAX_TIMEOUT);
+        console.log('Increasing timeout to:', timeoutRef.current);
+        
+        // Immediate retry with new timeout
+        setTimeout(() => {
+          if (watchIdRef.current) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+          }
+          startLocationWatch();
+        }, 1000);
+        return;
+      }
+
+      // Try to restart watching if we lose position (but not for permission denied)
+      if (err.code !== 1) {
+        setTimeout(() => {
+          if (watchIdRef.current) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+          }
+          startLocationWatch();
+        }, 5000);
       }
     };
+
+    // Base timeout values
+    const BASE_TIMEOUT = isSafari() ? 10000 : 5000;
+    const MAX_TIMEOUT = 30000;
+    timeoutRef.current = BASE_TIMEOUT;
 
     const options = {
       enableHighAccuracy: true,
       timeout: timeoutRef.current,
-      maximumAge: 0,
-      // Add these options for better background tracking
-      distanceFilter: 10, // Update every 10 meters
-      interval: 5000, // Update every 5 seconds
-      fastestInterval: 3000 // Fastest update interval
+      maximumAge: 0 // Don't use cached positions
     };
 
     try {
-      // Get initial position
+      // Get initial position with shorter timeout
       navigator.geolocation.getCurrentPosition(
         handleSuccess,
         handleError,
-        options
+        {
+          ...options,
+          timeout: BASE_TIMEOUT // Use base timeout for initial position
+        }
       );
 
-      // Start watching position
+      // Start watching position with current timeout value
       watchIdRef.current = navigator.geolocation.watchPosition(
         handleSuccess,
         handleError,
@@ -693,6 +649,19 @@ export default function GameMap({ onZoneCreated }) {
       });
     }
   }, [updateLocation, position]);
+
+  // Initialize location tracking
+  useEffect(() => {
+    if (!user || useSimulator) return;
+
+    requestLocationPermission();
+
+    return () => {
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, [user, useSimulator, requestLocationPermission]);
 
   // Handle location errors with more specific timeout messaging
   const handleLocationError = (error) => {
@@ -731,19 +700,6 @@ export default function GameMap({ onZoneCreated }) {
       hasPosition: !!position
     });
   };
-
-  // Initialize location tracking
-  useEffect(() => {
-    if (!user || useSimulator) return;
-
-    requestLocationPermission();
-
-    return () => {
-      if (watchIdRef.current) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
-  }, [user, useSimulator, requestLocationPermission]);
 
   // Check if player is outside any zone and update status - with rate limiting
   useEffect(() => {
