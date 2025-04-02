@@ -14,6 +14,8 @@ import { debounce } from 'lodash';
 import dynamic from 'next/dynamic';
 import { signOut } from 'firebase/auth';
 import { ROLES, getPlayerRole, setPlayerRole, switchPlayerRole } from '../lib/firebase/roles';
+import SpinningWheel from './SpinningWheel';
+import { APP_VERSION, isNewerVersion } from '../lib/version';
 
 // Dynamically import DrawingCanvas to avoid SSR issues
 const DrawingCanvas = dynamic(() => import('./DrawingCanvas'), {
@@ -158,13 +160,13 @@ function ProfileOverlay({ user, position, useSimulator, setUseSimulator }) {
             <div>ID: {user.uid.slice(0, 8)}...</div>
             <div>Позиция: {position ? `[${position[0].toFixed(4)}, ${position[1].toFixed(4)}]` : 'Няма'}</div>
           </div>
-          <button 
+          <button
             onClick={() => setUseSimulator(!useSimulator)}
             className="w-full text-left p-2 hover:bg-white/80 rounded text-sm text-gray-700"
           >
             {useSimulator ? 'Използвай GPS' : 'Използвай симулатор'}
           </button>
-          <button 
+          <button
             onClick={() => signOut(auth)}
             className="w-full text-left p-2 hover:bg-white/80 rounded text-sm text-red-600"
           >
@@ -400,6 +402,7 @@ export default function GameMap({ onZoneCreated }) {
   const [isZoneCreationModalOpen, setIsZoneCreationModalOpen] = useState(false);
   const [pendingZoneData, setPendingZoneData] = useState(null);
   const [playerRole, setPlayerRole] = useState(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   // Listen for players data including roles
   useEffect(() => {
@@ -954,6 +957,55 @@ export default function GameMap({ onZoneCreated }) {
     }
   }, [position]);
 
+  // Check for updates
+  useEffect(() => {
+    if (!user) return;
+
+    const versionRef = ref(database, 'appVersion');
+    const unsubscribe = onValue(versionRef, (snapshot) => {
+      const latestVersion = snapshot.val();
+      if (latestVersion && isNewerVersion(APP_VERSION, latestVersion)) {
+        setUpdateAvailable(true);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Add update notification
+  useEffect(() => {
+    if (updateAvailable) {
+      const notification = {
+        id: 'update',
+        message: 'Налична е нова версия. Моля, обновете страницата.',
+        type: 'info'
+      };
+      setNotifications(prev => {
+        if (!prev.find(n => n.id === 'update')) {
+          return [...prev, notification];
+        }
+        return prev;
+      });
+    }
+  }, [updateAvailable]);
+
+  // Add update prompt component
+  const UpdatePrompt = () => {
+    if (!updateAvailable) return null;
+
+    return (
+      <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[2000] bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
+        <span>Налична е нова версия!</span>
+        <button
+          onClick={() => window.location.reload()}
+          className="bg-white text-blue-500 px-3 py-1 rounded-full text-sm hover:bg-blue-50 transition-colors"
+        >
+          Обнови сега
+        </button>
+      </div>
+    );
+  };
+
   if (!user) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-50">
@@ -1019,6 +1071,7 @@ export default function GameMap({ onZoneCreated }) {
 
   return (
     <div className="fixed inset-0 overflow-hidden">
+      <UpdatePrompt />
       <RoleDisplay />
       {/* Map as background - always full viewport */}
       <div className="absolute inset-0 z-0">

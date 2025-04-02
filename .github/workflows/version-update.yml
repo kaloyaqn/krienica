@@ -1,0 +1,51 @@
+name: Update Version
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18'
+
+      - name: Update version
+        run: |
+          # Get current timestamp in YYYYMMDD.HHMMSS format
+          VERSION=$(date '+%Y%m%d.%H%M%S')
+          
+          # Update version in version.js
+          echo "export const APP_VERSION = '$VERSION';" > lib/version.js
+          echo "export function isNewerVersion(currentVersion, latestVersion) {" >> lib/version.js
+          echo "  return currentVersion !== latestVersion;" >> lib/version.js
+          echo "}" >> lib/version.js
+          
+          # Update version in Firebase
+          echo "const admin = require('firebase-admin');" > update-firebase-version.js
+          echo "const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);" >> update-firebase-version.js
+          echo "admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });" >> update-firebase-version.js
+          echo "admin.database().ref('appVersion').set('$VERSION')" >> update-firebase-version.js
+          echo "  .then(() => process.exit(0))" >> update-firebase-version.js
+          echo "  .catch((error) => { console.error(error); process.exit(1); });" >> update-firebase-version.js
+          
+          npm install firebase-admin
+          node update-firebase-version.js
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add lib/version.js
+          git commit -m "Update version to $(date '+%Y%m%d.%H%M%S')"
+          git push 
