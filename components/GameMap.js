@@ -32,7 +32,8 @@ L.Icon.Default.mergeOptions({
 const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
   const size = isCurrentUser ? 40 : 30;
   const borderSize = isCurrentUser ? 3 : 2;
-  const borderColor = role === ROLES.SEEKER ? '#FF0000' : '#4CAF50';  // Red for seekers, green for hiders
+  const borderColor = role === ROLES.SEEKER ? '#FF0000' : 
+                     role === ROLES.SPECTATOR ? '#FFD700' : '#4CAF50';  // Red for seekers, yellow for spectators, green for hiders
   
   return L.divIcon({
     html: `
@@ -56,7 +57,8 @@ const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
               height: ${size - borderSize * 2}px;
               border-radius: 50%;
               object-fit: cover;
-              ${role === ROLES.SEEKER ? 'border: 2px solid #FF0000;' : ''}
+              ${role === ROLES.SEEKER ? 'border: 2px solid #FF0000;' : 
+                role === ROLES.SPECTATOR ? 'border: 2px solid #FFD700;' : ''}
             "
             onerror="this.onerror=null; this.src='https://www.gravatar.com/avatar/?d=mp';"
           />
@@ -71,7 +73,8 @@ const createMarkerIcon = (photoURL, isCurrentUser = false, role = 'hider') => {
             justify-content: center;
             color: white;
             font-size: ${size / 2}px;
-            ${role === ROLES.SEEKER ? 'border: 2px solid #FF0000;' : ''}
+            ${role === ROLES.SEEKER ? 'border: 2px solid #FF0000;' : 
+              role === ROLES.SPECTATOR ? 'border: 2px solid #FFD700;' : ''}
           ">
             👤
           </div>
@@ -894,9 +897,11 @@ export default function GameMap({ onZoneCreated }) {
       <div className="fixed bottom-8 left-8 z-[1000] bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-2">
         <div className="flex items-center">
           <span className={`px-3 py-1 rounded-full ${
-            currentRole === ROLES.HIDER ? 'bg-green-500' : 'bg-red-500'
+            currentRole === ROLES.SEEKER ? 'bg-red-500' : 
+            currentRole === ROLES.SPECTATOR ? 'bg-yellow-500' : 'bg-green-500'
           } text-white font-medium`}>
-            {currentRole === ROLES.HIDER ? 'Криещ се' : 'Търсещ'}
+            {currentRole === ROLES.SEEKER ? 'Търсещ' : 
+             currentRole === ROLES.SPECTATOR ? 'Намерен' : 'Криещ се'}
           </span>
         </div>
       </div>
@@ -910,10 +915,15 @@ export default function GameMap({ onZoneCreated }) {
     const currentPlayer = players[user.uid];
     if (!currentPlayer?.role) return {};
 
-    // If player is a hider, they can only see other hiders
+    // If player is a spectator, they can see everyone
+    if (currentPlayer.role === ROLES.SPECTATOR) {
+      return players;
+    }
+
+    // If player is a hider, they can only see other hiders and spectators
     if (currentPlayer.role === ROLES.HIDER) {
       return Object.entries(players).reduce((acc, [playerId, playerData]) => {
-        if (playerData.role === ROLES.HIDER) {
+        if (playerData.role === ROLES.HIDER || playerData.role === ROLES.SPECTATOR) {
           acc[playerId] = playerData;
         }
         return acc;
@@ -930,7 +940,6 @@ export default function GameMap({ onZoneCreated }) {
       }, {});
     }
 
-    // Spectators can see everyone
     return players;
   }, [user, players]);
 
@@ -1094,9 +1103,11 @@ export default function GameMap({ onZoneCreated }) {
                   )}
                   <span className="font-bold text-lg">{user.displayName}</span>
                   <span className={`px-3 py-1 rounded-full text-white text-sm font-medium mt-1 ${
-                    players[user.uid]?.role === ROLES.SEEKER ? 'bg-red-500' : 'bg-green-500'
+                    players[user.uid]?.role === ROLES.SEEKER ? 'bg-red-500' : 
+                    players[user.uid]?.role === ROLES.SPECTATOR ? 'bg-yellow-500' : 'bg-green-500'
                   }`}>
-                    {players[user.uid]?.role === ROLES.SEEKER ? 'Търсещ' : 'Криещ се'}
+                    {players[user.uid]?.role === ROLES.SEEKER ? 'Търсещ' : 
+                     players[user.uid]?.role === ROLES.SPECTATOR ? 'Намерен' : 'Криещ се'}
                   </span>
                   <span className="text-xs text-gray-500 mt-1">
                     Това си ти
@@ -1125,9 +1136,11 @@ export default function GameMap({ onZoneCreated }) {
                       )}
                       <span className="font-bold text-lg">{playerData.displayName}</span>
                       <span className={`px-3 py-1 rounded-full text-white text-sm font-medium mt-1 ${
-                        playerData.role === ROLES.SEEKER ? 'bg-red-500' : 'bg-green-500'
+                        playerData.role === ROLES.SEEKER ? 'bg-red-500' : 
+                        playerData.role === ROLES.SPECTATOR ? 'bg-yellow-500' : 'bg-green-500'
                       }`}>
-                        {playerData.role === ROLES.SEEKER ? 'Търсещ' : 'Криещ се'}
+                        {playerData.role === ROLES.SEEKER ? 'Търсещ' : 
+                         playerData.role === ROLES.SPECTATOR ? 'Намерен' : 'Криещ се'}
                       </span>
                       <span className="text-xs text-gray-500 mt-1">
                         Последно обновяване: {new Date(playerData.timestamp).toLocaleTimeString()}
