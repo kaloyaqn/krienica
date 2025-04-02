@@ -897,8 +897,8 @@ export default function GameMap({ onZoneCreated }) {
     const currentRole = players[user?.uid]?.role || ROLES.HIDER;
     
     return (
-      <div className="fixed bottom-8 left-8 z-[1000] bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-2">
-        <div className="flex items-center">
+      <div className="absolute bottom-4 left-4 z-[1000] ">
+        <div className="flex items-center text-sm">
           <span className={`px-3 py-1 rounded-full ${
             currentRole === ROLES.SEEKER ? 'bg-red-500' : 
             currentRole === ROLES.SPECTATOR ? 'bg-yellow-500' : 'bg-green-500'
@@ -1079,8 +1079,8 @@ export default function GameMap({ onZoneCreated }) {
           <MapContainer
             key="map-container"
             center={position}
-            zoom={15}
-            style={{ height: '100vh', width: '100vw' }}
+            zoom={18}
+            style={{ height: '100%', width: '100%' }}
             ref={mapRef}
             zoomControl={false}
             className="h-screen w-screen"
@@ -1307,6 +1307,11 @@ export default function GameMap({ onZoneCreated }) {
         }}
         onSubmit={handleZoneSubmit}
       />
+
+      {/* Version number display */}
+      <div className="absolute bottom-4 right-4 z-[1000] bg-black/50 text-white px-3 py-1 rounded-full text-sm">
+        v{APP_VERSION}
+      </div>
     </div>
   );
 } 
